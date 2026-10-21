@@ -2,12 +2,17 @@ name: Chat summary
 
 on:
   schedule:
-    # 13:00 UTC = 6:30 PM IST. Must run AFTER the Apps Script extract trigger,
+    # 13:00 UTC = 6:30 PM IST. Must run AFTER the Apps Script extract triggers,
     # on the same calendar day in IST (the tab is named by that date).
     # GitHub may start scheduled runs 5-30 min late.
     - cron: "0 13 * * *"
   workflow_dispatch:
     inputs:
+      product:
+        description: "Product to run"
+        type: choice
+        options: [all, travel-animator, marine-radar]
+        default: all
       tab:
         description: "Tab to process (yyyy-MM-dd). Empty = today."
         required: false
@@ -19,14 +24,18 @@ on:
         description: "Send the email only to this address; don't write to the sheet"
         required: false
 
-concurrency:
-  group: chat-summary
-  cancel-in-progress: false
-
 jobs:
   summarize:
+    name: ${{ matrix.product }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false   # one product failing shouldn't stop the other's email
+      matrix:
+        product: ${{ fromJSON((inputs.product && inputs.product != 'all') && format('["{0}"]', inputs.product) || '["travel-animator","marine-radar"]') }}
+    concurrency:
+      group: chat-summary-${{ matrix.product }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-node@v7.0.0
@@ -34,14 +43,15 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: node index.js
+      - run: node index.js ${{ matrix.product }}
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
-          SHEET_ID: ${{ secrets.SHEET_ID }}
+          TRAVEL_ANIMATOR_SHEET_ID: ${{ secrets.TRAVEL_ANIMATOR_SHEET_ID }}
+          MARINE_RADAR_SHEET_ID: ${{ secrets.MARINE_RADAR_SHEET_ID }}
           TAB_NAME: ${{ inputs.tab }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
           TEST_EMAIL_TO: ${{ inputs.test_email_to }}

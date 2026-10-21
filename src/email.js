@@ -1,7 +1,5 @@
 /* Digest email layout (ported from the Apps Script version). */
 
-const PRODUCT_NAME = "Travel Animator";
-
 const SENTIMENT_SECTIONS = [
   { key: "negative", title: "Negative", note: "Frustrated, complaints, bugs" },
   { key: "neutral",  title: "Neutral",  note: "Plain questions & requests" },
@@ -37,7 +35,7 @@ function esc(s) {
     .replace(/"/g, "&quot;");
 }
 
-export function buildDigestEmail(items, tabName, sheetUrl) {
+export function buildDigestEmail(items, tabName, sheetUrl, productName) {
   const C = {
     bg: "#f3f2f0", card: "#ffffff", zebra: "#faf8f5", ink: "#1f1f1f",
     body: "#2b2b2b", muted: "#6b6b6b", faint: "#8a8a8a", line: "#e6e4e0"
@@ -123,7 +121,7 @@ export function buildDigestEmail(items, tabName, sheetUrl) {
     '<table role="presentation" width="520" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:520px;">' +
 
       '<tr><td style="font:700 12px/1.4 ' + FONT + ';letter-spacing:1px;text-transform:uppercase;color:' + C.faint + ';">Daily Chat Digest</td></tr>' +
-      '<tr><td style="font:800 28px/1.2 ' + FONT + ';color:' + C.ink + ';padding:16px 0 10px;">' + PRODUCT_NAME + ' Chat Summary</td></tr>' +
+      '<tr><td style="font:800 28px/1.2 ' + FONT + ';color:' + C.ink + ';padding:16px 0 10px;">' + esc(productName) + ' Chat Summary</td></tr>' +
       '<tr><td style="font:400 14px/1.4 ' + FONT + ';color:' + C.muted + ';">' + longDate +
         ' &nbsp;&middot;&nbsp; <span style="display:inline-block;background:' + C.ink + ';color:#ffffff;font:700 12px/1 ' + FONT +
         ';padding:5px 8px;border-radius:10px;vertical-align:1px;">' + plural(items.length, "chat") + '</span></td></tr>' +
@@ -142,7 +140,7 @@ export function buildDigestEmail(items, tabName, sheetUrl) {
     '</table></td></tr></table></div>';
 
   // Plain-text fallback
-  let text = PRODUCT_NAME + " Chat Summary\n" + longDate + " · " + plural(items.length, "chat") + "\n" + (since ? since + "\n" : "");
+  let text = productName + " Chat Summary\n" + longDate + " · " + plural(items.length, "chat") + "\n" + (since ? since + "\n" : "");
   SENTIMENT_SECTIONS.forEach(s => {
     const list = groups[s.key];
     if (!list.length) return;
