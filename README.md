@@ -28,4 +28,4 @@ TAB_NAME=2026-10-20 npm run local            # process a specific tab
 npm run local                                # real run
 ```
 
-The workflow can also be run manually from the Actions tab, with an optional tab and a dry-run switch.
+The workflow can also be run manually from the Actions tab, with an optional tab, a dry-run switch, and a test address that receives the email instead of everyone.

@@ -15,6 +15,9 @@ on:
         description: "Don't write to the sheet or send email; just print it"
         type: boolean
         default: false
+      test_email_to:
+        description: "Send the email only to this address; don't write to the sheet"
+        required: false
 
 concurrency:
   group: chat-summary
@@ -41,3 +44,4 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           TAB_NAME: ${{ inputs.tab }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          TEST_EMAIL_TO: ${{ inputs.test_email_to }}
