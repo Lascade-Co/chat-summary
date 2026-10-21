@@ -24,6 +24,9 @@ on:
         description: "Send the email only to this address; don't write to the sheet"
         required: false
 
+permissions:
+  contents: read
+
 jobs:
   summarize:
     name: ${{ matrix.product }}
@@ -55,3 +58,15 @@ jobs:
           TAB_NAME: ${{ inputs.tab }}
           DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
           TEST_EMAIL_TO: ${{ inputs.test_email_to }}
+
+  # GitHub disables scheduled workflows in public repos after 60 days without
+  # commits. Re-enabling it on every run resets that timer.
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/chat-summary.yml/enable"
+        env:
+          GH_TOKEN: ${{ github.token }}
