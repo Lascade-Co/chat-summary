@@ -133,12 +133,15 @@ const SUMMARY_SCHEMA = {
       items: {
         type: "OBJECT",
         properties: {
-          cell:      { type: "STRING" },
-          summary:   { type: "STRING" },
-          tag:       { type: "STRING", enum: ["answered", "forwarded", "unanswered", "abandoned"] },
-          sentiment: { type: "STRING", enum: ["positive", "neutral", "negative"] }
+          cell:          { type: "STRING" },
+          real_question: { type: "BOOLEAN" },
+          summary:       { type: "STRING" },
+          tag:           { type: "STRING", enum: ["answered", "forwarded", "unanswered", "abandoned"] },
+          sentiment:     { type: "STRING", enum: ["positive", "neutral", "negative"] }
         },
-        required: ["cell", "summary", "tag", "sentiment"]
+        required: ["cell", "real_question", "summary", "tag", "sentiment"],
+        // Decide real_question before anything else so the AI's reply can't sway it
+        propertyOrdering: ["cell", "real_question", "summary", "tag", "sentiment"]
       }
     }
   },
@@ -152,18 +155,23 @@ async function summarizeRows(rows, baseUrl, supportContact) {
     "Return STRICT JSON only (no markdown, no extra text) matching this schema:",
     "{",
     '  "items": [',
-    '    { "cell": "C2", "summary": "...", "tag": "answered|forwarded|unanswered|abandoned", "sentiment": "positive|neutral|negative" }',
+    '    { "cell": "C2", "real_question": true, "summary": "...", "tag": "answered|forwarded|unanswered|abandoned", "sentiment": "positive|neutral|negative" }',
     "  ]",
     "}",
+    "",
+    "REAL_QUESTION RULE (look ONLY at what the user wrote, ignore the AI's replies):",
+    '- false = greetings like "hi", random words or characters, a lone name or word with no clear request, or anything with no understandable question or request.',
+    "- true = the user asked something or requested something understandable (a ship name with a clear ask like \"where is X\" counts).",
     "",
     "SUMMARY RULE:",
     "- One concise sentence capturing what the user asked + what the AI replied (not just the issue).",
     "",
-    "TAG RULES (strict):",
-    "- answered = AI gave a clear and correct answer in the chat.",
-    '- forwarded = AI asked user to email/contact support (e.g. "mail us", "contact ' + (supportContact || "support") + '") instead of answering.',
-    "- unanswered = user had a valid question, but AI did not answer AND did not forward to support.",
-    '- abandoned = not a real question ("hi", random words), OR AI asked follow-up clarification and user did not continue.',
+    "TAG RULES (strict, check in this order):",
+    '- abandoned = the user never asked a real question (greetings like "hi", random words or characters, a lone name or word with no clear request), ' +
+      "OR the AI asked a follow-up clarification and the user did not continue. This applies NO MATTER what the AI replied, even if it pointed to support.",
+    "- answered = user asked a real question and the AI gave a clear and correct answer in the chat.",
+    '- forwarded = user asked a real question and the AI asked them to email/contact support (e.g. "mail us", "contact ' + (supportContact || "support") + '") instead of answering.',
+    "- unanswered = user asked a real question, but the AI did not answer AND did not forward to support.",
     "",
     "SENTIMENT RULES (the USER's mood, not the AI's):",
     "- positive = user is happy, thankful, complimentary, or excited about the app.",
@@ -200,6 +208,7 @@ async function summarizeRows(rows, baseUrl, supportContact) {
     const row = parseInt(cellRef.slice(1), 10);
     let tag = str(it.tag).toLowerCase();
     if (!allowedTags.has(tag)) tag = "unanswered";
+    if (it.real_question === false) tag = "abandoned";   // whatever the AI replied
     let sentiment = str(it.sentiment).toLowerCase();
     if (!allowedSentiments.has(sentiment)) sentiment = "neutral";
 
