@@ -1,0 +1,43 @@
+name: Chat summary
+
+on:
+  schedule:
+    # UTC. Must run AFTER the Apps Script extract trigger, and on the same
+    # calendar day in the sheet's timezone (the tab is named by that date).
+    # GitHub may start scheduled runs 5-30 min late.
+    - cron: "30 13 * * *"
+  workflow_dispatch:
+    inputs:
+      tab:
+        description: "Tab to process (yyyy-MM-dd). Empty = today."
+        required: false
+      dry_run:
+        description: "Don't write to the sheet or send email; just print it"
+        type: boolean
+        default: false
+
+concurrency:
+  group: chat-summary
+  cancel-in-progress: false
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node index.js
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          TAB_NAME: ${{ inputs.tab }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}

@@ -1,0 +1,15 @@
+{
+  "name": "chat-summary",
+  "version": "1.0.0",
+  "description": "SalesIQ chat digest: translate, summarize with Gemini, email",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "local": "node --env-file=.env index.js"
+  },
+  "private": true,
+  "dependencies": {
+    "googleapis": "^187.0.0"
+  },
+  "type": "module"
+}
