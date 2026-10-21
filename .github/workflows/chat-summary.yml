@@ -2,10 +2,10 @@ name: Chat summary
 
 on:
   schedule:
-    # UTC. Must run AFTER the Apps Script extract trigger, and on the same
-    # calendar day in the sheet's timezone (the tab is named by that date).
+    # 13:00 UTC = 6:30 PM IST. Must run AFTER the Apps Script extract trigger,
+    # on the same calendar day in IST (the tab is named by that date).
     # GitHub may start scheduled runs 5-30 min late.
-    - cron: "30 13 * * *"
+    - cron: "0 13 * * *"
   workflow_dispatch:
     inputs:
       tab:
@@ -25,10 +25,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       - run: npm ci
       - run: node index.js
