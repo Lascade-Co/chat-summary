@@ -51,14 +51,14 @@ test("striped table matches the canonical table, header, cell and alternating st
   }]);
 });
 
-test("stat grid uses the canonical body cell, four 130px cards and Outlook ghost cells", () => {
+test("stat grid uses four quarter-width desktop cards capped at 130px and Outlook ghost cells", () => {
   const html = stat_grid([[3, "Negative", "#c0392b"], [4, "Neutral", "#222222"], [5, "Positive", "#2a8c4a"], [6, "Abandoned", "#555555"]]);
   assert.ok(html.startsWith('<tr><td style="padding:16px 40px 0 40px; font-size:0; text-align:center;" class="body-cell">'));
   assert.ok(html.endsWith("<![endif]--></td></tr>"));
   assert.match(html, /<!--\[if mso\]><table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" align="center"><tr><td valign="top" width="130" align="center"><!\[endif\]-->/);
   assert.equal((html.match(/<!--\[if mso\]><\/td><td valign="top" width="130" align="center"><!\[endif\]-->/g) || []).length, 3);
   assert.deepEqual(tags(html, "div"), Array.from({ length: 4 }, () => ({
-    style: "display:inline-block; width:100%; max-width:130px; vertical-align:top; text-align:center;", class: "stat-col",
+    style: "display:inline-block; width:25%; max-width:130px; vertical-align:top; text-align:center;", class: "stat-col",
   })));
   assert.deepEqual(tags(html, "td").filter(tag => tag.class === "stat-card-dm"), Array.from({ length: 4 }, () => ({
     bgcolor: "#fefefe", style: "background-color:#fefefe; padding:16px 12px; text-align:center;", class: "stat-card-dm",
