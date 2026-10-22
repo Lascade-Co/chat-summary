@@ -280,10 +280,10 @@ export function small(text) {
 
 export function masthead(eyebrow, title, leadText = null, caption = null) {
   return section_open() +
-    cell(`<p style="margin:0; Margin:0; font-family:${FONT_HEADING}; font-size:12px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:${MUTED};" class="text-muted heading-dm">${esc(eyebrow)}</p>`, "40px 40px 10px 40px") +
+    `<tr><td style="padding:40px 40px 10px 40px; text-align:left;" class="body-cell"><p style="margin:0; Margin:0; font-family:${FONT_HEADING}; font-size:12px; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:${MUTED};" class="text-muted heading-dm">${esc(eyebrow)}</p></td></tr>` +
     cell(`<h1 class="email-h1 heading-dm text-main" style="margin:0; Margin:0; font-family:${FONT_HEADING}; font-size:30px; font-weight:700; line-height:1.1; letter-spacing:-0.02em; color:${INK};">${esc(title)}</h1>`, "10px 40px 0 40px") +
     (leadText == null ? "" : cell(lead(leadText))) +
-    (caption == null ? "" : cell(small(caption), "12px 40px 0 40px")) +
+    (caption == null ? "" : cell(small(caption))) +
     cell(`<table ${PRESENTATION} width="100%"><tr><td style="border-top:2px solid ${INK}; font-size:1px; line-height:1px; mso-line-height-rule:exactly;" class="header-border">&nbsp;</td></tr></table>`, "24px 40px 0 40px") +
     section_close();
 }
@@ -304,10 +304,11 @@ export function table(headers, rows, aligns = null, striped = true, widths = nul
     const stripe = striped && rowIndex % 2 === 0 ? ` style="background-color:${STRIPE};" class="table-stripe"` : "";
     return `<tr${stripe}>` + row.map((value, index) => {
       const inner = value && typeof value === "object" && Object.hasOwn(value, "html") ? value.html : esc(value);
-      return `<td align="${alignment(index)}" valign="top" style="padding:10px 12px;${striped ? "" : ` border-bottom:1px solid ${RULE};`}" class="text-main divider-line">${inner}</td>`;
+      const align = aligns?.[index] == null ? "" : ` align="${alignment(index)}"`;
+      return `<td${align} style="padding:10px 12px;${striped ? "" : ` border-bottom:1px solid ${RULE};`}"${striped ? "" : ' class="divider-line"'}>${inner}</td>`;
     }).join("") + "</tr>";
   }).join("");
-  return `<table cellspacing="0" cellpadding="0" border="0" width="100%" style="font-family:${FONT_BODY}; font-size:14px; line-height:1.5; color:${INK}; border-collapse:collapse;" class="text-main tfix"><tr>${heading}</tr>${body}</table>`;
+  return `<table cellspacing="0" cellpadding="0" border="0" width="100%" style="font-family:${FONT_BODY}; font-size:14px; line-height:1.5; color:${INK}; border-collapse:collapse;" class="text-main"><tr>${heading}</tr>${body}</table>`;
 }
 
 function cssColor(value) {
@@ -315,16 +316,16 @@ function cssColor(value) {
   return value;
 }
 
+/** Complete body-cell rows; place directly inside a section table. */
 export function stat_grid(stats) {
   let html = "";
   for (let offset = 0; offset < stats.length; offset += 4) {
     const row = stats.slice(offset, offset + 4);
-    const width = 520 / row.length;
-    html += `<div style="font-size:0; text-align:center;"><!--[if mso]><table ${PRESENTATION} width="520" align="center"><tr><![endif]-->`;
+    html += `<tr><td style="padding:16px 40px 0 40px; font-size:0; text-align:center;" class="body-cell"><!--[if mso]><table ${PRESENTATION} width="520" align="center"><tr><td valign="top" width="130" align="center"><![endif]-->`;
     html += row.map(([value, label, color = INK]) =>
-      `<!--[if mso]><td valign="top" width="${width}" align="center"><![endif]--><div style="display:inline-block; width:100%; max-width:${width}px; vertical-align:top; text-align:center;" class="stat-col"><table ${PRESENTATION} width="100%"><tr><td align="center" style="padding:4px;"><table ${PRESENTATION} width="100%"><tr><td bgcolor="${CARD}" style="background-color:${CARD}; padding:16px 12px; text-align:center;" class="stat-card-dm"><p style="margin:0; Margin:0; font-family:${FONT_HEADING}; font-size:32px; font-weight:700; line-height:1.1; color:${cssColor(color)};" class="stat-value heading-dm">${esc(value)}</p><p style="margin:4px 0 0 0; Margin:4px 0 0 0; font-family:${FONT_HEADING}; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:${STAT_LABEL};" class="stat-label-dm">${esc(label)}</p></td></tr></table></td></tr></table></div><!--[if mso]></td><![endif]-->`
-    ).join("");
-    html += "<!--[if mso]></tr></table><![endif]--></div>";
+      `<div style="display:inline-block; width:100%; max-width:130px; vertical-align:top; text-align:center;" class="stat-col"><table ${PRESENTATION} width="100%"><tr><td align="center" style="padding:4px;"><table ${PRESENTATION} width="100%"><tr><td bgcolor="${CARD}" style="background-color:${CARD}; padding:16px 12px; text-align:center;" class="stat-card-dm"><p style="margin:0; Margin:0; font-family:${FONT_HEADING}; font-size:32px; font-weight:700; line-height:1.1; color:${cssColor(color)};" class="stat-value heading-dm">${esc(value)}</p><p style="margin:4px 0 0 0; Margin:4px 0 0 0; font-family:${FONT_HEADING}; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:${STAT_LABEL};" class="stat-label-dm">${esc(label)}</p></td></tr></table></td></tr></table></div>`
+    ).join('<!--[if mso]></td><td valign="top" width="130" align="center"><![endif]-->');
+    html += "<!--[if mso]></td></tr></table><![endif]--></td></tr>";
   }
   return html;
 }
@@ -340,17 +341,19 @@ export function badge(text, variant = "default", color = null) {
   return `<span style="display:inline-block; font-family:${FONT_HEADING}; font-size:11px; font-weight:600; line-height:1; padding:${style.padding}; border-radius:12px; background-color:${style.bg}; color:${color == null ? style.color : cssColor(color)}; text-transform:uppercase; letter-spacing:0.03em;${style.border}" class="${style.classes}">${esc(text)}</span>`;
 }
 
+/** body is plain text or an array of plain-text lines. */
 export function callout(kind, title, body) {
   const variants = {
-    note: { color: INK, bg: STRIPE, classes: "callout-info-bg", border: "callout-info-border" },
-    warning: { color: AMBER, bg: "#faf3e6", classes: "callout-warning-bg", border: "" },
-    critical: { color: RED, bg: "#fdf0ee", classes: "callout-critical-dm", border: "" },
-    positive: { color: GREEN, bg: "#f0f8f2", classes: "callout-positive-dm", border: "" },
-    info: { color: BLUE, bg: "#eef5fb", classes: "callout-info-dm", border: "" },
+    note: { color: INK, titleColor: INK, bg: STRIPE, classes: "callout-info-bg", border: "callout-info-border", table: ' class="callout-info-bg"', weight: 600, tracking: "0.03em", lineHeight: "1.6" },
+    warning: { color: AMBER, titleColor: "#8a6520", bg: "#faf3e6", classes: "callout-warning-bg", table: ' class="callout-warning-bg"', weight: 600, tracking: "0.03em", lineHeight: "1.6" },
+    critical: { color: RED, titleColor: RED, bg: "#fdf0ee", classes: "callout-critical-dm", table: ' style="margin-bottom:16px;"', weight: 700, tracking: "0.04em", lineHeight: "1.55" },
+    positive: { color: GREEN, titleColor: GREEN, bg: "#f0f8f2", classes: "callout-positive-dm", table: ' style="margin-bottom:16px;"', weight: 700, tracking: "0.04em", lineHeight: "1.55" },
+    info: { color: BLUE, titleColor: BLUE, bg: "#eef5fb", classes: "callout-info-dm", table: "", weight: 700, tracking: "0.04em", lineHeight: "1.55" },
   };
   const style = variants[kind];
   if (!style) throw new DigestError("Invalid callout kind");
-  return `<table ${PRESENTATION} width="100%"><tr><td width="4" bgcolor="${style.color}" style="background-color:${style.color};" class="${style.border}"></td><td bgcolor="${style.bg}" style="background-color:${style.bg}; padding:16px 20px;" class="${style.classes}"><p style="margin:0; Margin:0 0 4px 0; font-family:${FONT_HEADING}; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:${style.color};" class="heading-dm">${esc(title)}</p><p style="margin:0; Margin:0; font-family:${FONT_BODY}; font-size:15px; line-height:1.55; color:${INK};" class="text-main">${esc(body)}</p></td></tr></table>`;
+  const lines = (Array.isArray(body) ? body : [body]).map(esc).join("<br />");
+  return `<table ${PRESENTATION} width="100%"${style.table}><tr><td width="4" bgcolor="${style.color}" style="background-color:${style.color};"${style.border ? ` class="${style.border}"` : ""}></td><td bgcolor="${style.bg}" style="background-color:${style.bg}; padding:16px 20px;" class="${style.classes}"><p style="margin:0; Margin:0 0 4px 0; font-family:${FONT_HEADING}; font-size:13px; font-weight:${style.weight}; text-transform:uppercase; letter-spacing:${style.tracking}; color:${style.titleColor};" class="heading-dm">${esc(title)}</p><p style="margin:0; Margin:0; font-family:${FONT_BODY}; font-size:15px; line-height:${style.lineHeight}; color:${INK};" class="text-main">${lines}</p></td></tr></table>`;
 }
 
 export function button(label, href, secondary = false) {
@@ -366,8 +369,8 @@ export function spacer() {
   return section_open() + '<tr><td style="padding:40px 0 0 0; font-size:1px; line-height:1px; mso-line-height-rule:exactly;">&nbsp;</td></tr>' + section_close();
 }
 
-export function footer(title, lines, links = []) {
-  return `<table ${PRESENTATION} width="100%"><tr><td bgcolor="${STRIPE}" style="background-color:${STRIPE}; padding:32px 40px; border-radius:0 0 6px 6px;" class="footer-bg body-cell"><p style="margin:0; Margin:0 0 8px 0; font-family:${FONT_HEADING}; font-size:13px; font-weight:600; color:${INK}; text-align:center;" class="heading-dm">${esc(title)}</p><p style="margin:0; Margin:0 0 16px 0; font-family:${FONT_BODY}; font-size:12px; line-height:1.5; color:${MUTED}; text-align:center;" class="text-muted">${lines.map(esc).join("<br />")}</p>${links.length ? `<p style="margin:0; Margin:0; font-family:${FONT_BODY}; font-size:11px; line-height:1.4; color:${MUTED}; text-align:center;" class="text-muted">${links.map(([label, href]) => `<a href="${esc(href)}" style="color:${MUTED}; text-decoration:underline;" class="email-link">${esc(label)}</a>`).join(" &nbsp;&middot;&nbsp; ")}</p>` : ""}</td></tr></table>`;
+export function footer(title, lines, links = [], addressLines = []) {
+  return `<table ${PRESENTATION} width="100%"><tr><td bgcolor="${STRIPE}" style="background-color:${STRIPE}; padding:32px 40px; border-radius:0 0 6px 6px;" class="footer-bg body-cell"><p style="margin:0; Margin:0 0 8px 0; font-family:${FONT_HEADING}; font-size:13px; font-weight:600; color:${INK}; text-align:center;" class="heading-dm">${esc(title)}</p><p style="margin:0; Margin:0 0 16px 0; font-family:${FONT_BODY}; font-size:12px; line-height:1.5; color:${MUTED}; text-align:center;" class="text-muted">${lines.map(esc).join("<br />")}</p>${links.length ? `<p style="margin:0; Margin:0 0 8px 0; font-family:${FONT_BODY}; font-size:12px; line-height:1.5; color:${MUTED}; text-align:center;" class="text-muted">${links.map(([label, href]) => `<a href="${esc(href)}" style="color:${MUTED}; text-decoration:underline;" class="email-link">${esc(label)}</a>`).join(" &nbsp;&middot;&nbsp; ")}</p>` : ""}${addressLines.length ? `<p style="margin:0; Margin:0; font-family:${FONT_BODY}; font-size:11px; line-height:1.4; color:#888888; text-align:center;" class="text-muted">${addressLines.map(esc).join("<br />")}</p>` : ""}</td></tr></table>`;
 }
 
 /** bodyHtml and footerHtml contain composed HTML; all text slots escape at their helper. */

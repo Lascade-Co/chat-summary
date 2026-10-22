@@ -1,7 +1,7 @@
 import {
-  AMBER, CAPTION, FONT_HEADING, GREEN, MUTED, RED,
-  badge, button, cell, document, esc, footer, h2, masthead,
-  section_close, section_open, small, table,
+  GREEN, INK, MUTED, RED,
+  badge, button, callout, cell, document, esc, footer, h2, masthead,
+  section_close, section_open, small, stat_grid, table,
 } from "./shell.js";
 import { DigestError } from "./errors.js";
 
@@ -12,12 +12,19 @@ const SENTIMENT_SECTIONS = [
 ];
 
 export const TAG_STYLE = {
-  unanswered: { label: "Unanswered", color: RED },
-  forwarded: { label: "Forwarded", color: AMBER },
-  answered: { label: "Answered", color: GREEN },
-  abandoned: { label: "Abandoned", color: MUTED },
+  unanswered: { label: "Unanswered", variant: "outline" },
+  forwarded: { label: "Forwarded", variant: "outline" },
+  answered: { label: "Answered", variant: "outline" },
+  abandoned: { label: "Abandoned", variant: "muted" },
 };
 const TAG_ORDER = { unanswered: 0, forwarded: 1, answered: 2, abandoned: 3 };
+// Word boundaries avoid matching unrelated words such as "recharge".
+const ATTENTION_TERMS = /\b(?:refund(?:s|ed|ing)?|cancel(?:s|led|ed|ling|ing|lations?)?|charge(?:s|d|backs?)?|charging|scam(?:s|med|ming)?|legal|data[\s-]+loss|safety)\b/i;
+
+function needsAttention(item) {
+  return (item.sentiment === "negative" && ["unanswered", "forwarded"].includes(item.tag)) ||
+    ATTENTION_TERMS.test(item.summary);
+}
 
 // Sheet timestamps are wall-clock Dates: UTC fields hold the sheet's local time.
 function fmt(date, options) {
@@ -39,6 +46,17 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName, unpro
   for (const list of Object.values(groups)) {
     list.sort((a, b) => (TAG_ORDER[a.tag] - TAG_ORDER[b.tag]) || (a.row - b.row));
   }
+  const stats = [
+    [groups.negative.length, "Negative", RED],
+    [groups.neutral.length, "Neutral", INK],
+    [groups.positive.length, "Positive", GREEN],
+    [abandoned.length, "Abandoned", MUTED],
+  ];
+  const attention = items.filter(needsAttention).sort((a, b) => a.row - b.row);
+  const attentionLines = attention.slice(0, 5).map(item =>
+    `${item.cellRef} · ${String(item.summary).replace(/\s+/g, " ").trim()}`
+  );
+  if (attention.length > 5) attentionLines.push(`+${attention.length - 5} more`);
 
   const date = new Date(`${reportDate}T12:00:00Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== reportDate) {
@@ -55,19 +73,20 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName, unpro
   function chatTable(list) {
     const rows = list.map(item => {
       const status = TAG_STYLE[item.tag] ?? TAG_STYLE.unanswered;
-      const link = `<a href="${esc(item.link)}" style="font-family:${FONT_HEADING}; font-size:13px; font-weight:600; color:${MUTED}; text-decoration:underline;" class="email-link">${esc(item.cellRef)} &#8599;</a>`;
-      const time = item.time ? `<p style="margin:4px 0 0 0; Margin:4px 0 0 0; font-family:${FONT_HEADING}; font-size:12px; line-height:1.4; color:${CAPTION};" class="text-muted">${esc(item.time)}</p>` : "";
-      return [{ html: link + time }, item.summary, { html: badge(status.label, "outline", status.color) }];
+      const link = `<a href="${esc(item.link)}" style="color:${INK}; text-decoration:underline;" class="email-link">${esc(item.cellRef)} &#8599;</a>`;
+      const time = item.time ? small(item.time) : "";
+      return [{ html: link + time }, item.summary, { html: badge(status.label, status.variant) }];
     });
-    return table(["Chat", "Summary", "Status"], rows, null, true, ["18%", "57%", "25%"]);
+    return table(["Chat", "Summary", "Status"], rows);
   }
 
-  let sections = "";
+  let sections = stat_grid(stats);
+  if (attentionLines.length) sections += cell(callout("critical", "Needs your attention", attentionLines));
   for (const section of SENTIMENT_SECTIONS) {
     const list = groups[section.key];
     if (!list.length) continue;
     sections += cell(h2(`${section.title} · ${plural(list.length, "chat")}`), "32px 40px 0 40px") +
-      cell(small(section.note), "8px 40px 0 40px") + cell(chatTable(list));
+      cell(small(section.note)) + cell(chatTable(list));
   }
   if (abandoned.length) {
     sections += cell(small(`Abandoned · ${plural(abandoned.length, "chat")} · No real question or no reply: ${abandoned.map(item => item.cellRef).join(", ")}`), "32px 40px 0 40px");
@@ -78,13 +97,16 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName, unpro
 
   const html = document(
     `${productName} chat summary`, `${productName} · ${longDate} · ${count}`,
-    masthead("Daily chat digest", `${productName} chat summary`, `${longDate} · ${count}`, since || null) +
+    masthead("Daily chat digest", `${productName} chat summary`, `${longDate} · ${count}${since ? ` · ${since}` : ""}`) +
       section_open() + sections + section_close(),
-    footer(`${productName} chats`, ["Daily chat digest from SalesIQ", "Summaries and sentiment are generated automatically."]),
+    footer(`${productName} chats`, ["Daily chat digest from SalesIQ", "Summaries and sentiment are generated automatically."],
+      [["View all in Sheets", sheetUrl]], [`Report for ${longDate}`]),
   );
 
   // Plain-text fallback preserves full summaries and sheet references.
   let text = productName + " Chat Summary\n" + longDate + " · " + count + "\n" + (since ? since + "\n" : "");
+  text += stats.map(([value, label]) => `${label}: ${value}`).join(" · ") + "\n";
+  if (attentionLines.length) text += "\nNeeds your attention\n" + attentionLines.join("\n") + "\n";
   for (const section of SENTIMENT_SECTIONS) {
     const list = groups[section.key];
     if (!list.length) continue;
