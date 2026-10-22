@@ -55,6 +55,8 @@ gh workflow run chat-summary.yml -R Lascade-Co/chat-summary -r <branch> -f dry_r
 
 Manual inputs are `product` (`all`, `travel-animator`, `marine-radar`), `edition` (`pt`, `ist`, `both`), `dry_run`, `report_date`, `tab`, `test_email_to`, and `recovery`. `report_date` controls the email date; `tab` selects the source independently. Dry runs and test sends never write to Sheets.
 
+When `tab` is omitted on a manual dispatch, both editions default to the current IST day's tab. Manual previews do not wait for extraction: if that tab does not exist yet, pass `-f tab=YYYY-MM-DD` for an existing tab. Setting `report_date` alone does not select the source tab. A missing source tab logs `Source tab unavailable at deadline`.
+
 Each artifact is named `preview-<product>-<edition>` and contains **only `preview.tar.gz.enc`**. It is an OpenSSL AES-256-CBC archive using PBKDF2 and a random salt with `PREVIEW_KEY`. The decrypted archive contains `out/<product>-<edition>.html` and `.subject.txt`. Only these two files are selected for the tar archive; plaintext output and frozen envelopes are never uploaded from this public repository.
 
 After downloading into a private local directory, decrypt with the same key supplied through a protected file:
@@ -63,7 +65,7 @@ After downloading into a private local directory, decrypt with the same key supp
 openssl enc -d -aes-256-cbc -pbkdf2 -pass file:/path/to/preview-key -in preview.tar.gz.enc | tar xz
 ```
 
-Actions logs contain counts and `sha256(subject)[:8]`, never subjects, email bodies, recipients, row contents, or raw upstream errors. Verify this against a real dry-run log as well as opening both edition previews. The required read-back preview is PT against a tab already summarized by IST.
+Actions logs contain counts, `sha256(subject)[:8]`, and our fixed, data-free error messages (such as missing environment names, missing tabs, or a Resend status/category). Only our `DigestError` messages are printed; other errors receive a generic failure line. Stacks, response bodies, subjects, email bodies, recipients, row contents, and raw upstream errors are never logged. Verify this against a real dry-run log as well as opening both edition previews. The required read-back preview is PT against a tab already summarized by IST.
 
 ## Local commands and layout
 

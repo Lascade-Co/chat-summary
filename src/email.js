@@ -3,6 +3,7 @@ import {
   badge, button, cell, document, esc, footer, h2, masthead,
   section_close, section_open, small, table,
 } from "./shell.js";
+import { DigestError } from "./errors.js";
 
 const SENTIMENT_SECTIONS = [
   { key: "negative", title: "Negative", note: "Frustrated, complaints, bugs" },
@@ -41,7 +42,7 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName, unpro
 
   const date = new Date(`${reportDate}T12:00:00Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(reportDate) || !Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== reportDate) {
-    throw new RangeError("Invalid report date");
+    throw new DigestError("Invalid report date");
   }
   const longDate = fmt(date, { weekday: "long" }) + ", " + fmt(date, { day: "numeric", month: "long", year: "numeric" });
   const times = items.map(item => item.when).filter(date => date instanceof Date && Number.isFinite(date.getTime())).sort((a, b) => a - b);

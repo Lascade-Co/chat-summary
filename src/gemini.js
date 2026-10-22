@@ -1,3 +1,5 @@
+import { DigestError } from "./errors.js";
+
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 
@@ -6,7 +8,7 @@ const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 /** Calls Gemini with a JSON response schema and returns the parsed object. */
 export async function generateJson(prompt, responseSchema, { maxOutputTokens = 16384 } = {}) {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
+  if (!apiKey) throw new DigestError("Missing GEMINI_API_KEY");
 
   const payload = {
     contents: [{ parts: [{ text: prompt }] }],
@@ -34,20 +36,23 @@ export async function generateJson(prompt, responseSchema, { maxOutputTokens = 1
   }
 
   const raw = await res.text();
-  if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
+  if (!res.ok) {
+    const status = Number.isInteger(res.status) && res.status >= 100 && res.status <= 599 ? res.status : 0;
+    throw new DigestError(`Gemini HTTP ${status}`);
+  }
 
   let outer;
   try { outer = JSON.parse(raw); }
-  catch { throw new Error("Gemini returned an invalid response"); }
+  catch { throw new DigestError("Gemini returned an invalid response"); }
   const candidate = outer?.candidates?.[0];
   const text = candidate?.content?.parts?.[0]?.text;
   if (!text) {
-    throw new Error("Gemini returned no text");
+    throw new DigestError("Gemini returned no text");
   }
 
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error("Gemini returned invalid model JSON");
+    throw new DigestError("Gemini returned invalid model JSON");
   }
 }

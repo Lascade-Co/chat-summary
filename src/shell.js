@@ -1,4 +1,5 @@
 // Email shell mined from product-intelligence/Style Template/styleguide-email.html.
+import { DigestError } from "./errors.js";
 // The template's head/CSS and outer body are copied verbatim below, except text slots and .tfix.
 export const FONT_HEADING = "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif";
 export const FONT_BODY = "'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif";
@@ -253,7 +254,7 @@ export function section_close() { return "</table>"; }
 
 /** inner is composed HTML; text belongs in p(), small(), or another escaping helper. */
 export function cell(inner, pad = "16px 40px 0 40px") {
-  if (!/^[\d.px% ]+$/.test(pad)) throw new TypeError("Invalid cell padding");
+  if (!/^[\d.px% ]+$/.test(pad)) throw new DigestError("Invalid cell padding");
   return `<tr><td style="padding:${pad};" class="body-cell">${inner}</td></tr>`;
 }
 
@@ -291,12 +292,12 @@ export function masthead(eyebrow, title, leadText = null, caption = null) {
 export function table(headers, rows, aligns = null, striped = true, widths = null) {
   function alignment(index) {
     const align = aligns?.[index] ?? "left";
-    if (!["left", "center", "right"].includes(align)) throw new TypeError("Invalid table alignment");
+    if (!["left", "center", "right"].includes(align)) throw new DigestError("Invalid table alignment");
     return align;
   }
   const heading = headers.map((label, index) => {
     const width = widths?.[index];
-    if (width != null && !/^\d+(?:\.\d+)?%?$/.test(String(width))) throw new TypeError("Invalid table width");
+    if (width != null && !/^\d+(?:\.\d+)?%?$/.test(String(width))) throw new DigestError("Invalid table width");
     return `<th align="${alignment(index)}"${width == null ? "" : ` width="${esc(width)}"`} style="padding:10px 12px; font-family:${FONT_HEADING}; font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:0.03em; border-bottom:2px solid ${INK}; color:${INK};" class="heading-dm header-border">${esc(label)}</th>`;
   }).join("");
   const body = rows.map((row, rowIndex) => {
@@ -310,7 +311,7 @@ export function table(headers, rows, aligns = null, striped = true, widths = nul
 }
 
 function cssColor(value) {
-  if (!/^#[\da-f]{6}$/i.test(value)) throw new TypeError("Invalid color");
+  if (!/^#[\da-f]{6}$/i.test(value)) throw new DigestError("Invalid color");
   return value;
 }
 
@@ -335,7 +336,7 @@ export function badge(text, variant = "default", color = null) {
     muted: { padding: "5px 10px", bg: "#dddad7", color: MUTED, classes: "badge-bg text-muted", border: "" },
   };
   const style = variants[variant];
-  if (!style) throw new TypeError("Invalid badge variant");
+  if (!style) throw new DigestError("Invalid badge variant");
   return `<span style="display:inline-block; font-family:${FONT_HEADING}; font-size:11px; font-weight:600; line-height:1; padding:${style.padding}; border-radius:12px; background-color:${style.bg}; color:${color == null ? style.color : cssColor(color)}; text-transform:uppercase; letter-spacing:0.03em;${style.border}" class="${style.classes}">${esc(text)}</span>`;
 }
 
@@ -348,7 +349,7 @@ export function callout(kind, title, body) {
     info: { color: BLUE, bg: "#eef5fb", classes: "callout-info-dm", border: "" },
   };
   const style = variants[kind];
-  if (!style) throw new TypeError("Invalid callout kind");
+  if (!style) throw new DigestError("Invalid callout kind");
   return `<table ${PRESENTATION} width="100%"><tr><td width="4" bgcolor="${style.color}" style="background-color:${style.color};" class="${style.border}"></td><td bgcolor="${style.bg}" style="background-color:${style.bg}; padding:16px 20px;" class="${style.classes}"><p style="margin:0; Margin:0 0 4px 0; font-family:${FONT_HEADING}; font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:${style.color};" class="heading-dm">${esc(title)}</p><p style="margin:0; Margin:0; font-family:${FONT_BODY}; font-size:15px; line-height:1.55; color:${INK};" class="text-main">${esc(body)}</p></td></tr></table>`;
 }
 

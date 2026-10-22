@@ -22,6 +22,7 @@
 
 import { readdirSync } from "node:fs";
 import { build, hold, run, send } from "./src/pipeline.js";
+import { digestFailureMessage } from "./src/errors.js";
 
 const productsDir = new URL("./products/", import.meta.url);
 const available = readdirSync(productsDir, { withFileTypes: true })
@@ -38,8 +39,8 @@ if (!available.includes(name) || !["build", "hold", "send", "run"].includes(comm
 const { default: product } = await import(new URL(name + "/config.js", productsDir));
 
 const action = command === "hold" ? () => hold() : () => ({ build, send, run }[command])(product);
-action().catch(() => {
+action().catch(error => {
   // API errors can contain full requests, model output, or customer data.
-  console.error("Chat digest " + command + " failed; no delivery marker was recorded.");
+  console.error(digestFailureMessage(error, command));
   process.exit(1);
 });

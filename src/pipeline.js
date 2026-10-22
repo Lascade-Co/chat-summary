@@ -15,6 +15,7 @@ import { generateJson } from "./gemini.js";
 import { buildDigestEmail, formatTime } from "./email.js";
 import { subject } from "./subject.js";
 import { freezeEnvelope, holdUntil, idempotencyKey, sendFrozen } from "./delivery.js";
+import { DigestError } from "./errors.js";
 
 const TRANSLATION_ERROR = "Translation Error";
 const TRANSLATE_CHUNK_CHARS = 20000;
@@ -29,7 +30,7 @@ const COL = { date: 0, subject: 1, chat: 2, translated: 3, summary: 4, tag: 5 };
 
 function requireEnv(name, env) {
   const v = env[name];
-  if (!v) throw new Error("Missing env var " + name);
+  if (!v) throw new DigestError("Missing env var " + name);
   return v;
 }
 
@@ -238,12 +239,12 @@ const enabled = value => value === "1" || value === "true";
 
 function editionSettings(env) {
   const edition = env.EDITION || "ist";
-  if (!Object.hasOwn(EDITIONS, edition)) throw new Error("Invalid EDITION");
+  if (!Object.hasOwn(EDITIONS, edition)) throw new DigestError("Invalid EDITION");
   return { edition, timezone: EDITIONS[edition] };
 }
 
 function pathsFor(product, edition, outputDir) {
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(product.slug)) throw new Error("Invalid product slug");
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(product.slug)) throw new DigestError("Invalid product slug");
   const stem = product.slug + "-" + edition;
   return {
     htmlPath: path.join(outputDir, stem + ".html"),
@@ -254,7 +255,7 @@ function pathsFor(product, edition, outputDir) {
 
 async function waitForTab(sheets, sheetId, tab, deadline, now, pause, log) {
   const end = deadline ? Date.parse(deadline) : null;
-  if (deadline && !Number.isFinite(end)) throw new Error("Invalid TAB_DEADLINE");
+  if (deadline && !Number.isFinite(end)) throw new DigestError("Invalid TAB_DEADLINE");
   let attempts = 0;
   for (;;) {
     const meta = await sheets.spreadsheets.get({
@@ -263,7 +264,7 @@ async function waitForTab(sheets, sheetId, tab, deadline, now, pause, log) {
     });
     const props = (meta.data.sheets || []).map(s => s.properties).find(p => p.title === tab);
     if (props) return props;
-    if (end === null || now() >= end) throw new Error("Source tab unavailable at deadline");
+    if (end === null || now() >= end) throw new DigestError("Source tab unavailable at deadline");
     log("Waiting for source tab; attempts=" + ++attempts);
     await pause(Math.min(60000, end - now()));
   }
@@ -276,7 +277,7 @@ function savedItems(rows, sentimentIndex, baseUrl) {
     const sentiment = str(row[sentimentIndex]).toLowerCase();
     if (!["answered", "forwarded", "unanswered", "abandoned"].includes(tag) ||
         !["negative", "neutral", "positive"].includes(sentiment)) {
-      throw new Error("Stored summary is missing a valid status or sentiment");
+      throw new DigestError("Stored summary is missing a valid status or sentiment");
     }
     const cellRef = "C" + (index + 2);
     const when = serialToWallClock(row[COL.date]);
@@ -297,7 +298,7 @@ export async function build(product, options = {}) {
   const tab = env.TAB_NAME || todayIn("Asia/Kolkata", now());
   const dryRun = enabled(env.DRY_RUN);
   const testTo = str(env.TEST_EMAIL_TO);
-  if (env.TEST_EMAIL_TO && !testTo) throw new Error("Invalid test recipient");
+  if (env.TEST_EMAIL_TO && !testTo) throw new DigestError("Invalid test recipient");
   const readOnly = dryRun || Boolean(testTo);
   // Validate the date before making any changes to the source sheet.
   subject(product.name + " chats", reportDate, timezone, "0 chats");
@@ -306,9 +307,9 @@ export async function build(product, options = {}) {
   const from = !dryRun ? requireEnv("MAIL_FROM", env) : null;
   const recipients = !dryRun ? (testTo || requireEnv(edition === "pt" ? "MAIL_TO_PT" : "MAIL_TO", env))
     .split(",").map(value => value.trim()).filter(Boolean) : [];
-  if (!dryRun && !recipients.length) throw new Error("No recipients configured");
+  if (!dryRun && !recipients.length) throw new DigestError("No recipients configured");
   const sentimentCol = product.sentimentCol;
-  if (!["G", "H"].includes(sentimentCol)) throw new Error("Invalid sentiment column");
+  if (!["G", "H"].includes(sentimentCol)) throw new DigestError("Invalid sentiment column");
   const sentimentIndex = sentimentCol.charCodeAt(0) - 65;
   const sheets = options.sheets || google.sheets({ version: "v4", auth: new google.auth.GoogleAuth({
     credentials: JSON.parse(requireEnv("GOOGLE_SERVICE_ACCOUNT_JSON", env)),
@@ -370,7 +371,7 @@ export async function hold(options = {}) {
 
 export async function send(product, options = {}) {
   const { env = process.env, outputDir = "out", log = console.log, ...transport } = options;
-  if (enabled(env.DRY_RUN)) throw new Error("Sending is disabled in dry-run mode");
+  if (enabled(env.DRY_RUN)) throw new DigestError("Sending is disabled in dry-run mode");
   const { edition } = editionSettings(env);
   const { frozenPath } = pathsFor(product, edition, outputDir);
   const result = await sendFrozen(frozenPath, { ...transport, apiKey: requireEnv("RESEND_API_KEY", env) });

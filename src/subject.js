@@ -1,3 +1,5 @@
+import { DigestError } from "./errors.js";
+
 /** Format either an edition-local calendar date or an instant in that edition. */
 export function subject(name, date, tz, tail) {
   let instant;
@@ -6,12 +8,12 @@ export function subject(name, date, tz, tail) {
     // A report date is already a calendar day in the edition timezone.
     instant = new Date(`${date}T12:00:00Z`);
     if (!Number.isFinite(instant.getTime()) || instant.toISOString().slice(0, 10) !== date) {
-      throw new RangeError("Invalid report date");
+      throw new DigestError("Invalid report date");
     }
     timeZone = "UTC";
   } else {
     instant = date instanceof Date ? date : new Date(date);
-    if (!Number.isFinite(instant.getTime())) throw new RangeError("Invalid report date");
+    if (!Number.isFinite(instant.getTime())) throw new DigestError("Invalid report date");
   }
   const displayDate = new Intl.DateTimeFormat("en-US", {
     weekday: "short", month: "short", day: "numeric", timeZone,

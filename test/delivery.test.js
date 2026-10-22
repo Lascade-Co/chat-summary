@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { freezeEnvelope, holdUntil, idempotencyKey, sendFrozen } from "../src/delivery.js";
+import { DigestError, digestFailureMessage } from "../src/errors.js";
 
 const payload = {
   from: "Sender <sender@example.test>",
@@ -81,6 +82,31 @@ test("freezing rejects scheduled delivery fields", async t => {
   await assert.rejects(envelope(t, { ...payload, scheduled_at: "2026-10-21T12:55:00Z" }), /scheduled/i);
 });
 
+test("delivery configuration failures expose safe diagnoses without invalid input values", async t => {
+  const file = await envelope(t);
+  const input = { sheetIdEnv: "TA_SHEET_ID", tab: "2026-10-21", edition: "pt" };
+  const failures = [
+    () => idempotencyKey({ ...input, tab: "Private subject\nrecipient@example.test" }),
+    () => idempotencyKey({ ...input, testTo: "recipient@example.test", runId: "Private subject\n" }),
+    () => freezeEnvelope(file, { key: "Private subject\n", payload }),
+    () => freezeEnvelope(file, { key: "safe", payload: null }),
+    () => freezeEnvelope(file, { key: "safe", payload: { ...payload, scheduled_at: "Private subject" } }),
+    () => freezeEnvelope(file, { key: "safe", payload }),
+    () => sendFrozen(file, { apiKey: "" }),
+    () => sendFrozen(file, { apiKey: "secret-test-key", maxAttempts: 0 }),
+    () => holdUntil("Private subject recipient@example.test"),
+  ];
+  for (const fail of failures) {
+    await assert.rejects(async () => fail(), error => {
+      assert.ok(error instanceof DigestError);
+      const diagnostic = digestFailureMessage(error, "deliver");
+      assert.ok(diagnostic.includes(error.message));
+      assert.doesNotMatch(diagnostic, /Private|recipient@example|secret-test-key/);
+      return true;
+    });
+  }
+});
+
 test("ambiguous POST retries the exact frozen bytes and idempotency key", async t => {
   const file = await envelope(t);
   const submissions = [];
@@ -131,8 +157,13 @@ test("a fresh-run changed payload fails closed on invalid idempotency conflict",
     apiKey: "secret-test-key", fetchImpl,
     sleep: async () => assert.fail("Invalid idempotency conflicts must not retry"),
   }), error => {
+    assert.ok(error instanceof DigestError);
     assert.match(error.message, /409.*invalid_idempotent_request/);
     assert.doesNotMatch(error.message, /Private|recipient|changed summary/);
+    const diagnostic = digestFailureMessage(error, "deliver");
+    assert.match(diagnostic, /409.*invalid_idempotent_request/);
+    assert.doesNotMatch(diagnostic, /Private|recipient|changed summary/);
+    assert.equal(error.cause, undefined);
     return true;
   });
   assert.equal(calls, 2);
@@ -154,6 +185,53 @@ test("concurrent idempotency conflicts retry with bounded backoff", async t => {
   assert.equal(delays.length, 2);
   assert.ok(delays.every(ms => ms > 0 && ms <= 60000));
   assert.ok(delays[1] >= delays[0]);
+});
+
+test("exhausted concurrent conflicts report only the safe status and category", async t => {
+  const file = await envelope(t);
+  await assert.rejects(sendFrozen(file, {
+    apiKey: "secret-test-key", maxAttempts: 1,
+    fetchImpl: async () => response(409, "concurrent_idempotent_requests", "Private subject recipient@example.test"),
+  }), error => {
+    assert.ok(error instanceof DigestError);
+    const diagnostic = digestFailureMessage(error, "deliver");
+    assert.match(diagnostic, /HTTP 409 \(concurrent_idempotent_requests\)/);
+    assert.doesNotMatch(diagnostic, /Private|recipient@example|secret-test-key/);
+    assert.equal(error.cause, undefined);
+    return true;
+  });
+});
+
+test("unknown conflict categories cannot enter a safe diagnostic", async t => {
+  const file = await envelope(t);
+  await assert.rejects(sendFrozen(file, {
+    apiKey: "secret-test-key", maxAttempts: 1,
+    fetchImpl: async () => response(409, "Private subject recipient@example.test"),
+  }), error => {
+    assert.ok(error instanceof DigestError);
+    const diagnostic = digestFailureMessage(error, "deliver");
+    assert.match(diagnostic, /HTTP 409 \(idempotency conflict\)/);
+    assert.doesNotMatch(diagnostic, /Private|recipient@example|secret-test-key/);
+    return true;
+  });
+});
+
+test("untrusted HTTP status values normalize to a safe transport diagnostic", async t => {
+  const file = await envelope(t);
+  for (const status of ["Private subject recipient@example.test", "200", 99, 600, NaN, 200.5]) {
+    const upstream = response(500);
+    Object.defineProperty(upstream, "status", { value: status });
+    await assert.rejects(sendFrozen(file, {
+      apiKey: "secret-test-key", maxAttempts: 1,
+      fetchImpl: async () => upstream,
+    }), error => {
+      assert.ok(error instanceof DigestError);
+      const diagnostic = digestFailureMessage(error, "deliver");
+      assert.match(diagnostic, /HTTP 0 \(transport\)/);
+      assert.doesNotMatch(diagnostic, /Private|recipient@example|secret-test-key/);
+      return true;
+    });
+  }
 });
 
 for (const status of [201, 202, 400, 401, 409]) {
@@ -207,8 +285,13 @@ test("malformed frozen input fails before making a request without exposing its 
     apiKey: "secret-test-key",
     fetchImpl: async () => assert.fail("Malformed payload must not reach Resend"),
   }), error => {
+    assert.ok(error instanceof DigestError);
     assert.match(error.message, /frozen envelope/i);
     assert.doesNotMatch(error.message, /Private|recipient/);
+    const diagnostic = digestFailureMessage(error, "deliver");
+    assert.match(diagnostic, /Invalid frozen envelope/);
+    assert.doesNotMatch(diagnostic, /Private|recipient|SyntaxError|JSON/);
+    assert.equal(error.cause, undefined);
     return true;
   });
 });

@@ -3,6 +3,7 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import * as pipeline from "../src/pipeline.js";
+import { DigestError, digestFailureMessage } from "../src/errors.js";
 
 const product = { slug: "travel-animator", name: "Travel Animator", sheetIdEnv: "TRAVEL_ANIMATOR_SHEET_ID", sentimentCol: "G" };
 const savedRow = [46315.5, "private subject", "private transcript", "private translation", "Saved customer summary", "answered", "positive"];
@@ -136,7 +137,13 @@ test("missing tab fails at the deadline and manual missing tabs fail immediately
     f.options.now = () => now;
     f.options.sleep = async ms => { sleeps.push(ms); now += ms; };
     f.sheets.spreadsheets.get = async () => ({ data: { sheets: [] } });
-    await assert.rejects(pipeline.build(product, f.options), /tab unavailable/i);
+    await assert.rejects(pipeline.build(product, f.options), error => {
+      assert.equal(error.name, "DigestError");
+      assert.equal(error.message, "Source tab unavailable at deadline");
+      assert.ok(error instanceof DigestError);
+      assert.equal(digestFailureMessage(error, "build"), "Source tab unavailable at deadline");
+      return true;
+    });
     assert.deepEqual(sleeps, deadline ? [60000, 30000] : []);
     assert.deepEqual(await readdir(f.outputDir), []);
   }

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { generateJson } from "../src/gemini.js";
+import { DigestError, digestFailureMessage } from "../src/errors.js";
 
 test("Gemini errors never expose response or customer content", async t => {
   const originalFetch = globalThis.fetch;
@@ -21,7 +22,15 @@ test("Gemini errors never expose response or customer content", async t => {
     globalThis.fetch = async () => response;
     await assert.rejects(generateJson("fixture", {}), error => {
       assert.ok(!error.message.includes(privateText));
+      assert.ok(error instanceof DigestError);
+      assert.equal(digestFailureMessage(error, "build"), error.message);
       return true;
     });
   }
+  globalThis.fetch = async () => { throw new Error(privateText); };
+  await assert.rejects(generateJson("fixture", {}), error => {
+    assert.equal(error instanceof DigestError, false);
+    assert.equal(digestFailureMessage(error, "build"), "Chat digest build failed; no delivery marker was recorded.");
+    return true;
+  });
 });
