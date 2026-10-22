@@ -60,9 +60,9 @@ test("digest uses semantic status colours and keeps abandoned chats muted", () =
       classes,
     }));
   assert.deepEqual(badges, [
-    { label: "Unanswered", background: "#fdf0ee", color: "#c0392b", classes: "callout-critical-dm" },
-    { label: "Forwarded", background: "#faf3e6", color: "#8a6520", classes: "callout-warning-bg" },
-    { label: "Answered", background: "#f0f8f2", color: "#2a8c4a", classes: "callout-positive-dm" },
+    { label: "Unanswered", background: "#fdf0ee", color: "#c0392b", classes: "callout-critical-dm badge-critical-dm" },
+    { label: "Forwarded", background: "#faf3e6", color: "#8a6520", classes: "callout-warning-bg badge-warning-dm" },
+    { label: "Answered", background: "#f0f8f2", color: "#2a8c4a", classes: "callout-positive-dm badge-positive-dm" },
   ]);
   assert.match(html, /<p[^>]*color:#666666;" class="text-muted">Abandoned · 1 chat · No real question or no reply: E5<\/p>/);
   const abandoned = TAG_STYLE.abandoned;
@@ -183,7 +183,7 @@ test("chat table uses the requested widths and prevents links, times and badges 
   assert.deepEqual(widths, [["Chat", "22%"], ["Summary", "54%"], ["Status", "24%"]]);
   assert.match(html, /<a[^>]*style="[^"]*white-space:nowrap;[^"]*"[^>]*>C22 &#8599;<\/a>/);
   assert.match(html, /<div style="white-space:nowrap;"><a[^>]*>C22 &#8599;<\/a><p[^>]*>12:59 PM<\/p><\/div>/);
-  assert.match(html, /<span style="white-space:nowrap;"><span[^>]*class="callout-critical-dm">Unanswered<\/span><\/span>/);
+  assert.match(html, /<span style="white-space:nowrap;"><span[^>]*class="callout-critical-dm badge-critical-dm">Unanswered<\/span><\/span>/);
 });
 
 test("attention is omitted without matches, including similar words and a zero-chat day", () => {

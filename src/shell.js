@@ -162,6 +162,10 @@ export function head(title) {
             .contributor-card-dm { background-color: #2a2927 !important; }
             .contributor-meta-dm { color: #a8a49e !important; }
             .callout-critical-dm { background-color: #2a2220 !important; }
+            .badge-critical-dm { color: #f0a094 !important; }
+            .badge-warning-dm { color: #e6c27a !important; }
+            .badge-positive-dm { color: #8fd3a5 !important; }
+            .badge-info-dm { color: #9cc9ec !important; }
             .callout-positive-dm { background-color: #202a22 !important; }
             .callout-info-dm { background-color: #20242a !important; }
         }
@@ -191,6 +195,10 @@ export function head(title) {
         [data-ogsc] .contributor-card-dm { background-color: #2a2927 !important; }
         [data-ogsc] .contributor-meta-dm { color: #a8a49e !important; }
         [data-ogsc] .callout-critical-dm { background-color: #2a2220 !important; }
+        [data-ogsc] .badge-critical-dm { color: #f0a094 !important; }
+        [data-ogsc] .badge-warning-dm { color: #e6c27a !important; }
+        [data-ogsc] .badge-positive-dm { color: #8fd3a5 !important; }
+        [data-ogsc] .badge-info-dm { color: #9cc9ec !important; }
         [data-ogsc] .callout-positive-dm { background-color: #202a22 !important; }
         [data-ogsc] .callout-info-dm { background-color: #20242a !important; }
     </style>
@@ -300,7 +308,7 @@ export function table(headers, rows, aligns = null, striped = true, widths = nul
   const heading = headers.map((label, index) => {
     const width = widths?.[index];
     if (width != null && !/^\d+(?:\.\d+)?%?$/.test(String(width))) throw new DigestError("Invalid table width");
-    return `<th align="${alignment(index)}"${width == null ? "" : ` width="${esc(width)}"`} style="padding:10px 12px; font-family:${FONT_HEADING}; font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:0.03em; border-bottom:2px solid ${INK}; white-space:nowrap; color:${INK};" class="heading-dm header-border">${esc(label)}</th>`;
+    return `<th align="${alignment(index)}"${width == null ? "" : ` width="${esc(width)}"`} style="padding:10px 12px; font-family:${FONT_HEADING}; font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:0.03em; border-bottom:2px solid ${INK}; word-break:normal; overflow-wrap:normal; hyphens:none; color:${INK};" class="heading-dm header-border">${esc(label)}</th>`;
   }).join("");
   const body = rows.map((row, rowIndex) => {
     const stripe = striped && rowIndex % 2 === 0 ? ` style="background-color:${STRIPE};" class="table-stripe"` : "";
@@ -353,10 +361,10 @@ export function badge(text, variant = "default", color = null) {
     default: { padding: "5px 10px", bg: "#e8e6e3", color: INK, classes: "badge-bg", border: "" },
     outline: { padding: "4px 9px", bg: "transparent", color: INK, classes: "badge-outline", border: " border:1px solid #888888;" },
     muted: { padding: "5px 10px", bg: "#dddad7", color: MUTED, classes: "badge-bg text-muted", border: "" },
-    critical: { padding: "5px 10px", bg: "#fdf0ee", color: RED, classes: "callout-critical-dm", border: "" },
-    warning: { padding: "5px 10px", bg: "#faf3e6", color: "#8a6520", classes: "callout-warning-bg", border: "" },
-    positive: { padding: "5px 10px", bg: "#f0f8f2", color: GREEN, classes: "callout-positive-dm", border: "" },
-    info: { padding: "5px 10px", bg: "#eef5fb", color: BLUE, classes: "callout-info-bg", border: "" },
+    critical: { padding: "5px 10px", bg: "#fdf0ee", color: RED, classes: "callout-critical-dm badge-critical-dm", border: "" },
+    warning: { padding: "5px 10px", bg: "#faf3e6", color: "#8a6520", classes: "callout-warning-bg badge-warning-dm", border: "" },
+    positive: { padding: "5px 10px", bg: "#f0f8f2", color: GREEN, classes: "callout-positive-dm badge-positive-dm", border: "" },
+    info: { padding: "5px 10px", bg: "#eef5fb", color: BLUE, classes: "callout-info-bg badge-info-dm", border: "" },
   };
   const style = variants[variant];
   if (!style) throw new DigestError("Invalid badge variant");

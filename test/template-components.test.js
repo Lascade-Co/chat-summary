@@ -41,7 +41,7 @@ test("striped table matches the canonical table, header, cell and alternating st
   }]);
   assert.deepEqual(tags(html, "th"), Array.from({ length: 2 }, () => ({
     align: "left",
-    style: `padding:10px 12px; font-family:${headingFont}; font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:0.03em; border-bottom:2px solid #222222; white-space:nowrap; color:#222222;`,
+    style: `padding:10px 12px; font-family:${headingFont}; font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:0.03em; border-bottom:2px solid #222222; word-break:normal; overflow-wrap:normal; hyphens:none; color:#222222;`,
     class: "heading-dm header-border",
   })));
   assert.deepEqual(tags(html, "tr"), [{}, { style: "background-color:#ece9e6;", class: "table-stripe" }, {}, { style: "background-color:#ece9e6;", class: "table-stripe" }]);
@@ -129,10 +129,10 @@ test("badge variants retain the template's sizes, padding, backgrounds and borde
 });
 
 for (const [variant, background, color, classes] of [
-  ["critical", "#fdf0ee", "#c0392b", "callout-critical-dm"],
-  ["warning", "#faf3e6", "#8a6520", "callout-warning-bg"],
-  ["positive", "#f0f8f2", "#2a8c4a", "callout-positive-dm"],
-  ["info", "#eef5fb", "#2980b9", "callout-info-bg"],
+  ["critical", "#fdf0ee", "#c0392b", "callout-critical-dm badge-critical-dm"],
+  ["warning", "#faf3e6", "#8a6520", "callout-warning-bg badge-warning-dm"],
+  ["positive", "#f0f8f2", "#2a8c4a", "callout-positive-dm badge-positive-dm"],
+  ["info", "#eef5fb", "#2980b9", "callout-info-bg badge-info-dm"],
 ]) {
   test(`${variant} badges use the semantic colours and default pill shape`, () => {
     const html = badge("<status>", variant);
@@ -143,6 +143,33 @@ for (const [variant, background, color, classes] of [
     assert.match(html, />&lt;status&gt;<\/span>/);
   });
 }
+
+const darkBadgeColors = [
+  ["critical", "#f0a094"],
+  ["warning", "#e6c27a"],
+  ["positive", "#8fd3a5"],
+  ["info", "#9cc9ec"],
+];
+
+test("semantic badge text colours override inline colours inside the dark-mode media query", () => {
+  const html = head("Dark-mode digest");
+  const dark = html.match(/@media \(prefers-color-scheme: dark\) \{([\s\S]*?)\n        \}/);
+  assert.ok(dark);
+  const colors = [...dark[1].matchAll(/^\s*\.badge-(critical|warning|positive|info)-dm\s*\{\s*color:\s*(#[a-f0-9]{6}) !important;\s*\}/gm)]
+    .map(([, variant, color]) => [variant, color]);
+  assert.deepEqual(colors, darkBadgeColors);
+});
+
+test("Outlook badge text colours are scoped to data-ogsc outside the dark-mode media query", () => {
+  const html = head("Outlook dark-mode digest");
+  const dark = html.match(/@media \(prefers-color-scheme: dark\) \{([\s\S]*?)\n        \}/);
+  assert.ok(dark);
+  const outside = html.replace(dark[0], "");
+  const colors = [...outside.matchAll(/^\s*\[data-ogsc\] \.badge-(critical|warning|positive|info)-dm\s*\{\s*color:\s*(#[a-f0-9]{6}) !important;\s*\}/gm)]
+    .map(([, variant, color]) => [variant, color]);
+  assert.deepEqual(colors, darkBadgeColors);
+  assert.doesNotMatch(outside, /^\s*\.badge-(critical|warning|positive|info)-dm\s*\{/m);
+});
 
 test("callouts match each canonical variant and escape multiline attention content", () => {
   const variants = [
