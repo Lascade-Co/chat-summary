@@ -31,6 +31,8 @@ Build writes a frozen envelope once to `out/frozen-<product>-<edition>.json` on 
 
 For manual production recovery make a **fresh dispatch on `main`** with `recovery=true` for the current or an earlier report day; successful dated deliveries are still skipped. Production sends from other branches/tags, future report days, and GitHub's **Re-run jobs** are rejected so every accepted delivery remains visible to the donor's main-only, bounded history scan. Dispatch a new recovery run instead. Dry runs and test sends may run or rerun on preview branches and do not require recovery mode. Delivery-history failures fail closed. A red Actions run is the alert; there is no Telegram integration.
 
+Resend [retains idempotency keys for only 24 hours](https://resend.com/docs/dashboard/emails/idempotency-keys). A recovery for a report day older than 24 hours can resend even with the same key once that retention window has expired. **Before dispatching recovery, the operator must check the Resend dashboard for an accepted send** for that product, edition, and report day, including when Actions failed before recording a delivery marker. If a send was already accepted, do not dispatch recovery for it.
+
 ## Secrets
 
 Configure repository Actions secrets; `.env` may be used locally and is ignored by Git.
