@@ -118,6 +118,54 @@ test("attention lists at most five chats in sheet order and counts the rest once
   assert.equal(text.match(/\+2 more/g)?.length, 1);
 });
 
+test("attention truncates normalized summaries at a word boundary while detail keeps the full text", () => {
+  const summary = "  Customer requested a refund after the app charged them twice and support has\nnot replied for three days.\tThey are waiting for a response.  ";
+  const expected = "C2 · Customer requested a refund after the app charged them twice and support has not replied…";
+  const { html, text } = buildDigestEmail([chat({ cellRef: "C2", summary })], "2025-10-21", "https://docs.google.com/", "MarineRadar");
+  const attention = attentionFragment(html);
+  assert.ok(attention.includes(expected));
+  assert.doesNotMatch(attention, /for three days|waiting for a response|\n|\t/);
+  assert.equal(text.split("\nNeeds your attention\n")[1].split("\n\n")[0], expected);
+  assert.ok(html.includes(shell.esc(summary)), "HTML detail preserves the original summary");
+  assert.ok(text.includes(summary), "text detail preserves the original summary");
+});
+
+test("attention keeps summaries up to 90 characters and bounds a long unbroken Unicode token", () => {
+  const exactLimit = "x".repeat(88) + " y";
+  const { html: shortHtml, text: shortText } = buildDigestEmail([chat({ summary: exactLimit })], "2025-10-21", "https://docs.google.com/", "MarineRadar");
+  assert.ok(attentionFragment(shortHtml).includes(exactLimit));
+  assert.doesNotMatch(attentionFragment(shortHtml), /…/);
+  assert.ok(shortText.includes(`Needs your attention\nE2 · ${exactLimit}\n`));
+
+  const summary = "🔒".repeat(100);
+  const expected = "🔒".repeat(89) + "…";
+  const { html, text } = buildDigestEmail([chat({ summary })], "2025-10-21", "https://docs.google.com/", "MarineRadar");
+  assert.ok(attentionFragment(html).includes(expected));
+  assert.ok(text.includes(`Needs your attention\nE2 · ${expected}\n`));
+  assert.doesNotMatch(attentionFragment(html), /\uFFFD/);
+});
+
+test("attention classification uses the full summary and truncated text stays escaped", () => {
+  const summary = 'The <customer> asks about a saved map & route. ' + 'The export still does not work. '.repeat(3) + 'They requested a refund.';
+  const { html, text } = buildDigestEmail([chat({ summary, sentiment: "neutral", tag: "answered" })], "2025-10-21", "https://docs.google.com/", "MarineRadar");
+  const attention = attentionFragment(html);
+  assert.match(attention, /Needs your attention/);
+  assert.match(attention, /The &lt;customer&gt; asks about a saved map &amp; route\./);
+  assert.match(attention, /…<\/p>/);
+  assert.doesNotMatch(attention, /<customer>|refund/);
+  assert.match(text, /Needs your attention\nE2 · The <customer> asks about a saved map & route\./);
+});
+
+test("chat table uses the requested widths and prevents links, times and badges from wrapping", () => {
+  const { html } = buildDigestEmail([chat({ cellRef: "C22", time: "12:59 PM" })], "2025-10-21", "https://docs.google.com/", "MarineRadar");
+  const widths = [...html.matchAll(/<th[^>]*width="([0-9]+%)"[^>]*>(Chat|Summary|Status)<\/th>/g)]
+    .map(([, width, label]) => [label, width]);
+  assert.deepEqual(widths, [["Chat", "22%"], ["Summary", "54%"], ["Status", "24%"]]);
+  assert.match(html, /<a[^>]*style="[^"]*white-space:nowrap;[^"]*"[^>]*>C22 &#8599;<\/a>/);
+  assert.match(html, /<div style="white-space:nowrap;"><a[^>]*>C22 &#8599;<\/a><p[^>]*>12:59 PM<\/p><\/div>/);
+  assert.match(html, /<span style="white-space:nowrap;"><span[^>]*class="badge-outline">Unanswered<\/span><\/span>/);
+});
+
 test("attention is omitted without matches, including similar words and a zero-chat day", () => {
   for (const items of [[], [chat({ summary: "Recharged battery; legally purchased app", sentiment: "neutral", tag: "answered" })]]) {
     const { html, text } = buildDigestEmail(items, "2025-10-21", "https://docs.google.com/", "MarineRadar");
@@ -134,7 +182,7 @@ test("digest uses canonical content spacing, captions, links, and complete foote
   assert.match(html, /<td style="padding:32px 40px 0 40px;" class="body-cell"><h2[^>]*>Negative · 1 chat<\/h2>/);
   assert.match(html, /<td style="padding:16px 40px 0 40px;" class="body-cell"><p[^>]*>Frustrated, complaints, bugs<\/p>/);
   assert.ok(html.includes(shell.small("4:30 AM")));
-  assert.match(html, /<a href="https:\/\/docs.google.com\/spreadsheets\/d\/example\/edit#range=E2" style="color:#222222; text-decoration:underline;" class="email-link">E2 &#8599;<\/a>/);
+  assert.match(html, /<a href="https:\/\/docs.google.com\/spreadsheets\/d\/example\/edit#range=E2" style="color:#222222; text-decoration:underline; white-space:nowrap;" class="email-link">E2 &#8599;<\/a>/);
   assert.doesNotMatch(html, /padding:8px 40px 0 40px|width="18%"|class="text-main tfix"/);
   assert.ok(html.includes('font-size:12px; line-height:1.5; color:#555555; text-align:center;'));
   assert.match(html, /<p[^>]*font-size:11px; line-height:1.4; color:#888888; text-align:center;" class="text-muted">Report for Tuesday, 21 October 2025<\/p>/);

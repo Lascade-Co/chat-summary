@@ -26,6 +26,17 @@ function needsAttention(item) {
     ATTENTION_TERMS.test(item.summary);
 }
 
+function attentionSummary(summary) {
+  const characters = Array.from(String(summary).replace(/\s+/g, " ").trim());
+  const limit = 90;
+  if (characters.length <= limit) return characters.join("");
+  const excerpt = characters.slice(0, limit - 1).join("");
+  const boundary = excerpt.lastIndexOf(" ");
+  // Keep whole words when possible; bound an overlong token without splitting a surrogate pair.
+  const trimmed = characters[limit - 1] === " " || boundary < 0 ? excerpt : excerpt.slice(0, boundary);
+  return trimmed.trimEnd() + "…";
+}
+
 // Sheet timestamps are wall-clock Dates: UTC fields hold the sheet's local time.
 function fmt(date, options) {
   return new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...options }).format(date);
@@ -54,7 +65,7 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName, unpro
   ];
   const attention = items.filter(needsAttention).sort((a, b) => a.row - b.row);
   const attentionLines = attention.slice(0, 5).map(item =>
-    `${item.cellRef} · ${String(item.summary).replace(/\s+/g, " ").trim()}`
+    `${item.cellRef} · ${attentionSummary(item.summary)}`
   );
   if (attention.length > 5) attentionLines.push(`+${attention.length - 5} more`);
 
@@ -73,11 +84,15 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName, unpro
   function chatTable(list) {
     const rows = list.map(item => {
       const status = TAG_STYLE[item.tag] ?? TAG_STYLE.unanswered;
-      const link = `<a href="${esc(item.link)}" style="color:${INK}; text-decoration:underline;" class="email-link">${esc(item.cellRef)} &#8599;</a>`;
+      const link = `<a href="${esc(item.link)}" style="color:${INK}; text-decoration:underline; white-space:nowrap;" class="email-link">${esc(item.cellRef)} &#8599;</a>`;
       const time = item.time ? small(item.time) : "";
-      return [{ html: link + time }, item.summary, { html: badge(status.label, status.variant) }];
+      return [
+        { html: `<div style="white-space:nowrap;">${link}${time}</div>` },
+        item.summary,
+        { html: `<span style="white-space:nowrap;">${badge(status.label, status.variant)}</span>` },
+      ];
     });
-    return table(["Chat", "Summary", "Status"], rows);
+    return table(["Chat", "Summary", "Status"], rows, null, true, ["22%", "54%", "24%"]);
   }
 
   let sections = stat_grid(stats);
