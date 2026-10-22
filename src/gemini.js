@@ -34,18 +34,20 @@ export async function generateJson(prompt, responseSchema, { maxOutputTokens = 1
   }
 
   const raw = await res.text();
-  if (!res.ok) throw new Error(`Gemini HTTP ${res.status}: ${raw.slice(0, 2000)}`);
+  if (!res.ok) throw new Error(`Gemini HTTP ${res.status}`);
 
-  const outer = JSON.parse(raw);
+  let outer;
+  try { outer = JSON.parse(raw); }
+  catch { throw new Error("Gemini returned an invalid response"); }
   const candidate = outer?.candidates?.[0];
   const text = candidate?.content?.parts?.[0]?.text;
   if (!text) {
-    throw new Error(`Gemini returned no text. finishReason=${candidate?.finishReason}\nRaw: ${raw.slice(0, 2000)}`);
+    throw new Error("Gemini returned no text");
   }
 
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error(`Failed to parse model JSON:\n${text.slice(0, 2000)}`);
+    throw new Error("Gemini returned invalid model JSON");
   }
 }

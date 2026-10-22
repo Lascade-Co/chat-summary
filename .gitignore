@@ -1,3 +1,10 @@
 node_modules/
 .env
 gen-lang-client-*.json
+out/
+out/frozen-*.json
+preview.tar.gz.enc
+__pycache__/
+*.pyc
+.pipeline-test-*/
+.delivery-test-*/

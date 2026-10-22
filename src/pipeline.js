@@ -8,9 +8,13 @@
  */
 
 import { createHash } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { google } from "googleapis";
 import { generateJson } from "./gemini.js";
 import { buildDigestEmail, formatTime } from "./email.js";
+import { subject } from "./subject.js";
+import { freezeEnvelope, holdUntil, idempotencyKey, sendFrozen } from "./delivery.js";
 
 const TRANSLATION_ERROR = "Translation Error";
 const TRANSLATE_CHUNK_CHARS = 20000;
@@ -23,16 +27,16 @@ const COL = { date: 0, subject: 1, chat: 2, translated: 3, summary: 4, tag: 5 };
 /* Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-function requireEnv(name) {
-  const v = process.env[name];
+function requireEnv(name, env) {
+  const v = env[name];
   if (!v) throw new Error("Missing env var " + name);
   return v;
 }
 
-function todayIn(tz) {
+function todayIn(tz, now) {
   // en-CA formats as yyyy-MM-dd
   return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" })
-    .format(new Date());
+    .format(new Date(now));
 }
 
 /**
@@ -66,10 +70,10 @@ const TRANSLATE_SCHEMA = {
   required: ["items"]
 };
 
-async function translateRows(rows) {
+async function translateRows(rows, generate, log) {
   const pending = [];
   rows.forEach((r, i) => {
-    if (str(r[COL.translated])) return;
+    if (str(r[COL.summary]) || (str(r[COL.translated]) && str(r[COL.translated]) !== TRANSLATION_ERROR)) return;
     const text = str(r[COL.chat]);
     if (!text) return;
     pending.push({ i, cell: "C" + (i + 2), text: text.slice(0, 5000) });
@@ -103,10 +107,10 @@ async function translateRows(rows) {
 
     let byCell = new Map();
     try {
-      const parsed = await generateJson(prompt, TRANSLATE_SCHEMA, { maxOutputTokens: 65536 });
+      const parsed = await generate(prompt, TRANSLATE_SCHEMA, { maxOutputTokens: 65536 });
       byCell = new Map((parsed.items || []).map(it => [str(it.cell), String(it.english ?? "")]));
-    } catch (e) {
-      console.log("Translation error for " + chunk.map(p => p.cell).join(",") + ": " + e.message);
+    } catch {
+      log("Translation failed; rows=" + chunk.length);
     }
 
     for (const p of chunk) {
@@ -148,7 +152,7 @@ const SUMMARY_SCHEMA = {
   required: ["items"]
 };
 
-async function summarizeRows(rows, baseUrl, supportContact) {
+async function summarizeRows(rows, baseUrl, supportContact, generate) {
   let prompt = [
     'You will receive multiple customer chats. Each chat belongs to a spreadsheet cell like "C2", "C3" etc.',
     "",
@@ -195,7 +199,7 @@ async function summarizeRows(rows, baseUrl, supportContact) {
 
   if (validCells.size === 0) return [];
 
-  const parsed = await generateJson(prompt, SUMMARY_SCHEMA);
+  const parsed = await generate(prompt, SUMMARY_SCHEMA);
   const allowedTags = new Set(["answered", "forwarded", "unanswered", "abandoned"]);
   const allowedSentiments = new Set(["positive", "neutral", "negative"]);
   const items = [];
@@ -228,107 +232,158 @@ async function summarizeRows(rows, baseUrl, supportContact) {
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
-export async function run(product) {
-  const SHEET_ID = requireEnv(product.sheetIdEnv);
-  const RECIPIENTS = requireEnv("MAIL_TO").split(",").map(s => s.trim()).filter(Boolean);
-  const sentimentCol = product.sentimentCol;
+const EDITIONS = { pt: "America/Los_Angeles", ist: "Asia/Kolkata" };
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const enabled = value => value === "1" || value === "true";
 
-  const auth = new google.auth.GoogleAuth({
-    credentials: JSON.parse(requireEnv("GOOGLE_SERVICE_ACCOUNT_JSON")),
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-  });
-  const sheets = google.sheets({ version: "v4", auth });
+function editionSettings(env) {
+  const edition = env.EDITION || "ist";
+  if (!Object.hasOwn(EDITIONS, edition)) throw new Error("Invalid EDITION");
+  return { edition, timezone: EDITIONS[edition] };
+}
 
-  const meta = await sheets.spreadsheets.get({
-    spreadsheetId: SHEET_ID,
-    fields: "properties.timeZone,sheets.properties(sheetId,title)"
-  });
-  const tz = meta.data.properties.timeZone;
-  const tab = process.env.TAB_NAME || todayIn(tz);   // the tab name IS the date
+function pathsFor(product, edition, outputDir) {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(product.slug)) throw new Error("Invalid product slug");
+  const stem = product.slug + "-" + edition;
+  return {
+    htmlPath: path.join(outputDir, stem + ".html"),
+    subjectPath: path.join(outputDir, stem + ".subject.txt"),
+    frozenPath: path.join(outputDir, "frozen-" + stem + ".json")
+  };
+}
 
-  const props = meta.data.sheets.map(s => s.properties).find(p => p.title === tab);
-  if (!props) {
-    console.log("Tab not found: " + tab + " (no chats saved by Apps Script yet?)");
-    return;
+async function waitForTab(sheets, sheetId, tab, deadline, now, pause, log) {
+  const end = deadline ? Date.parse(deadline) : null;
+  if (deadline && !Number.isFinite(end)) throw new Error("Invalid TAB_DEADLINE");
+  let attempts = 0;
+  for (;;) {
+    const meta = await sheets.spreadsheets.get({
+      spreadsheetId: sheetId,
+      fields: "sheets.properties(sheetId,title)"
+    });
+    const props = (meta.data.sheets || []).map(s => s.properties).find(p => p.title === tab);
+    if (props) return props;
+    if (end === null || now() >= end) throw new Error("Source tab unavailable at deadline");
+    log("Waiting for source tab; attempts=" + ++attempts);
+    await pause(Math.min(60000, end - now()));
   }
+}
 
-  const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: `'${tab}'!A2:H`,
-    valueRenderOption: "UNFORMATTED_VALUE",
-    dateTimeRenderOption: "SERIAL_NUMBER"
-  });
-  const rows = (res.data.values || []).map(r => Array.from({ length: 8 }, (_, i) => r[i] ?? ""));
-  if (!rows.length) {
-    console.log("No rows in " + tab + ".");
-    return;
-  }
-
-  const testTo = process.env.TEST_EMAIL_TO;
-  const readOnly = Boolean(process.env.DRY_RUN || testTo);
-  const wrote = readOnly ? "(not written: test run) " : "written ";
-
-  const writeCells = data => readOnly ? Promise.resolve() : sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId: SHEET_ID,
-    requestBody: {
-      valueInputOption: "RAW",
-      data: data.map(d => ({ range: `'${tab}'!${d.range}`, values: d.values }))
+function savedItems(rows, sentimentIndex, baseUrl) {
+  return rows.flatMap((row, index) => {
+    if (!str(row[COL.summary])) return [];
+    const tag = str(row[COL.tag]).toLowerCase();
+    const sentiment = str(row[sentimentIndex]).toLowerCase();
+    if (!["answered", "forwarded", "unanswered", "abandoned"].includes(tag) ||
+        !["negative", "neutral", "positive"].includes(sentiment)) {
+      throw new Error("Stored summary is missing a valid status or sentiment");
     }
+    const cellRef = "C" + (index + 2);
+    const when = serialToWallClock(row[COL.date]);
+    return [{ cellRef, row: index + 2, link: baseUrl + cellRef,
+      summary: str(row[COL.summary]), tag, sentiment, when, time: when ? formatTime(when) : "" }];
+  });
+}
+
+/** Build once; customer data remains only on this runner's disk. */
+export async function build(product, options = {}) {
+  const { env = process.env, now = Date.now, sleep: pause = sleep,
+    generateJsonImpl = generateJson, outputDir = "out", log = console.log } = options;
+  const { edition, timezone } = editionSettings(env);
+  const paths = pathsFor(product, edition, outputDir);
+  const sheetId = requireEnv(product.sheetIdEnv, env);
+  const reportDate = env.REPORT_DATE || todayIn(timezone, now());
+  // The extractor names its tab for its IST run day in both editions.
+  const tab = env.TAB_NAME || todayIn("Asia/Kolkata", now());
+  const dryRun = enabled(env.DRY_RUN);
+  const testTo = str(env.TEST_EMAIL_TO);
+  if (env.TEST_EMAIL_TO && !testTo) throw new Error("Invalid test recipient");
+  const readOnly = dryRun || Boolean(testTo);
+  // Validate the date before making any changes to the source sheet.
+  subject(product.name + " chats", reportDate, timezone, "0 chats");
+  const key = !dryRun ? idempotencyKey({ sheetIdEnv: product.sheetIdEnv, tab, edition,
+    testTo, runId: env.GITHUB_RUN_ID }) : null;
+  const from = !dryRun ? requireEnv("MAIL_FROM", env) : null;
+  const recipients = !dryRun ? (testTo || requireEnv(edition === "pt" ? "MAIL_TO_PT" : "MAIL_TO", env))
+    .split(",").map(value => value.trim()).filter(Boolean) : [];
+  if (!dryRun && !recipients.length) throw new Error("No recipients configured");
+  const sentimentCol = product.sentimentCol;
+  if (!["G", "H"].includes(sentimentCol)) throw new Error("Invalid sentiment column");
+  const sentimentIndex = sentimentCol.charCodeAt(0) - 65;
+  const sheets = options.sheets || google.sheets({ version: "v4", auth: new google.auth.GoogleAuth({
+    credentials: JSON.parse(requireEnv("GOOGLE_SERVICE_ACCOUNT_JSON", env)),
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+  }) });
+  const props = await waitForTab(sheets, sheetId, tab, env.TAB_DEADLINE, now, pause, log);
+  const tabRange = "'" + tab.replace(/'/g, "''") + "'!";
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId, range: tabRange + "A2:H",
+    valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "SERIAL_NUMBER"
+  });
+  const rows = (res.data.values || []).map(row => Array.from({ length: 8 }, (_, index) => row[index] ?? ""));
+  const writeCells = data => readOnly ? Promise.resolve() : sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: sheetId,
+    requestBody: { valueInputOption: "RAW", data: data.map(value => ({ range: tabRange + value.range, values: value.values })) }
   });
 
-  // 1. Translate
-  const translations = await translateRows(rows);
-  if (translations.length) {
-    await writeCells(translations);
-    console.log("Translations " + wrote + "to column D: " + translations.length);
+  const translations = await translateRows(rows, generateJsonImpl, log);
+  if (translations.length) await writeCells(translations);
+  const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/edit#gid=${props.sheetId}`;
+  const newItems = await summarizeRows(rows, sheetUrl + "&range=", product.supportContact, generateJsonImpl);
+  if (newItems.length) {
+    await writeCells([
+      { range: sentimentCol + "1", values: [["Sentiment"]] },
+      ...newItems.flatMap(item => [
+        { range: `E${item.row}:F${item.row}`, values: [[item.summary, item.tag]] },
+        { range: sentimentCol + item.row, values: [[item.sentiment]] }
+      ])
+    ]);
+    for (const item of newItems) {
+      rows[item.row - 2][COL.summary] = item.summary;
+      rows[item.row - 2][COL.tag] = item.tag;
+      rows[item.row - 2][sentimentIndex] = item.sentiment;
+    }
   }
-
-  // 2. Summarize
-  const sheetUrl = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=${props.sheetId}`;
-  const items = await summarizeRows(rows, sheetUrl + "&range=", product.supportContact);
-  if (!items.length) {
-    console.log("No new translated chats to summarize.");
-    return;
+  // Do not permanently accept a partial digest when translation/model output is incomplete.
+  if (rows.some(row => (str(row[COL.chat]) || str(row[COL.translated])) && !str(row[COL.summary]))) {
+    throw new Error("Some source chats could not be summarized");
   }
-
-  await writeCells([
-    { range: sentimentCol + "1", values: [["Sentiment"]] },
-    ...items.flatMap(it => [
-      { range: `E${it.row}:F${it.row}`, values: [[it.summary, it.tag]] },
-      { range: sentimentCol + it.row, values: [[it.sentiment]] }
-    ])
-  ]);
-  console.log("Summaries " + wrote + "to E:F + " + sentimentCol + ": " + items.length);
-
-  // 3. Email
-  const email = buildDigestEmail(items, tab, sheetUrl, product.name);
-  const subject = "Chat Summary " + product.name + " - " + tab;
-
-  if (process.env.DRY_RUN) {
-    console.log("DRY_RUN - not sending.\nSubject: " + subject + "\n\n" + email.text);
-    return;
+  const items = savedItems(rows, sentimentIndex, sheetUrl + "&range=");
+  const email = buildDigestEmail(items, reportDate, sheetUrl, product.name);
+  const emailSubject = subject(product.name + " chats", reportDate, timezone, items.length + " chats");
+  await mkdir(outputDir, { recursive: true, mode: 0o700 });
+  await writeFile(paths.htmlPath, email.html, { mode: 0o600 });
+  await writeFile(paths.subjectPath, emailSubject + "\n", { mode: 0o600 });
+  if (!dryRun) {
+    await freezeEnvelope(paths.frozenPath, { key,
+      payload: { from, to: recipients, subject: emailSubject, html: email.html, text: email.text } });
   }
+  const subjectHash = createHash("sha256").update(emailSubject).digest("hex").slice(0, 8);
+  log(`Built chats=${items.length} summarized=${newItems.length} translated=${translations.length} subject_sha256=${subjectHash}`);
+  return { count: items.length, subjectHash, ...paths, frozenPath: dryRun ? null : paths.frozenPath };
+}
 
-  const sendRes = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Authorization": "Bearer " + requireEnv("RESEND_API_KEY"),
-      "Content-Type": "application/json",
-      // Same tab + same chats = same key, so a retried run doesn't send the email twice
-      "Idempotency-Key": "chat-summary/" + product.sheetIdEnv + "/" + (testTo ? "test/" + Date.now() + "/" : "") + tab + "/" +
-        createHash("sha256").update(items.map(it => it.cellRef).join(",")).digest("hex").slice(0, 32)
-    },
-    body: JSON.stringify({
-      from: requireEnv("MAIL_FROM"),
-      to: testTo ? [testTo] : RECIPIENTS,
-      subject,
-      html: email.html,
-      text: email.text
-    })
-  });
-  if (!sendRes.ok) {
-    throw new Error("Resend HTTP " + sendRes.status + ": " + (await sendRes.text()).slice(0, 2000));
-  }
+/** Workflow runs dedupe after this hold, while it still owns the send lock. */
+export async function hold(options = {}) {
+  const { env = process.env, ...clock } = options;
+  await holdUntil(env.HOLD_UNTIL, clock);
+}
 
-  console.log("Emailed " + items.length + " " + product.name + " summaries for " + tab + " to " + (testTo || "all recipients") + ".");
+export async function send(product, options = {}) {
+  const { env = process.env, outputDir = "out", log = console.log, ...transport } = options;
+  if (enabled(env.DRY_RUN)) throw new Error("Sending is disabled in dry-run mode");
+  const { edition } = editionSettings(env);
+  const { frozenPath } = pathsFor(product, edition, outputDir);
+  const result = await sendFrozen(frozenPath, { ...transport, apiKey: requireEnv("RESEND_API_KEY", env) });
+  log("Accepted emails=1");
+  return result;
+}
+
+/** Local convenience; Actions splits these stages to check dedupe after the hold. */
+export async function run(product, options = {}) {
+  const result = await build(product, options);
+  if (!result.frozenPath) return result;
+  await hold(options);
+  await send(product, options);
+  return result;
 }

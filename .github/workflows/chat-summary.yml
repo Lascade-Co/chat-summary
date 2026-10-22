@@ -2,62 +2,202 @@ name: Chat summary
 
 on:
   schedule:
-    # 13:00 UTC = 6:30 PM IST. Must run AFTER the Apps Script extract triggers,
-    # on the same calendar day in IST (the tab is named by that date).
-    # GitHub may start scheduled runs 5-30 min late.
-    - cron: "0 13 * * *"
+    # Start the evening before each report day. Two sleeping gates release at
+    # 05:05 local; the email job builds once, then holds until 05:55 local.
+    - cron: "43 3,6,9 * * *"
+    - cron: "9 13,16,19 * * *"
   workflow_dispatch:
     inputs:
       product:
-        description: "Product to run"
+        description: Product to process
         type: choice
         options: [all, travel-animator, marine-radar]
         default: all
-      tab:
-        description: "Tab to process (yyyy-MM-dd). Empty = today."
-        required: false
+      edition:
+        description: Delivery edition (manual runs skip gate sleep and hold)
+        type: choice
+        options: [pt, ist, both]
+        default: both
       dry_run:
-        description: "Don't write to the sheet or send email; just print it"
+        description: Build an encrypted preview without sheet writes or email
         type: boolean
         default: false
-      test_email_to:
-        description: "Send the email only to this address; don't write to the sheet"
+      tab:
+        description: Sheet tab (YYYY-MM-DD); blank = current day in Asia/Kolkata
         required: false
+      report_date:
+        description: Subject report day (YYYY-MM-DD); blank = current day in each edition
+        required: false
+      test_email_to:
+        description: Test recipient override; no sheet writes or delivery marker
+        required: false
+      recovery:
+        description: Send to real recipients only if no dated Deliver step succeeded
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  actions: read
+
+# The minute identifies the edition before the gate can resolve its settings.
+concurrency:
+  group: digest-chat-summary-${{ github.event_name == 'schedule' && (startsWith(github.event.schedule, '9 ') && 'ist' || 'pt') || inputs.edition || 'both' }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+env:
+  RAW: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}
+  EVENT: ${{ github.event_name }}
+  SCHEDULE: ${{ github.event.schedule }}
+  INPUT_EDITION: ${{ inputs.edition || 'both' }}
+  INPUT_PRODUCT: ${{ inputs.product || 'all' }}
+  INPUT_DATE: ${{ inputs.report_date }}
+  DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+  RECOVERY: ${{ inputs.recovery && 'true' || 'false' }}
 
 jobs:
-  summarize:
-    name: ${{ matrix.product }}
+  gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 350
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+      report_date: ${{ steps.gate.outputs.report_date }}
+      timezone: ${{ steps.settings.outputs.timezone }}
+      sent_step: ${{ steps.settings.outputs.sent_step }}
+      matrix: ${{ steps.settings.outputs.matrix }}
+      edition_matrix: ${{ steps.settings.outputs.edition_matrix }}
+      mode: ${{ steps.settings.outputs.mode }}
+    steps:
+      - name: Resolve editions
+        id: settings
+        run: |
+          for file in editions.py catchup_gate.py; do
+            curl -fsSL --retry 3 --max-time 30 -o "$file" "$RAW/scripts/gate/$file"
+          done
+          python3 editions.py settings
+      - name: Wait for the local build window (phase 1)
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZONE: ${{ steps.settings.outputs.timezone }}
+          SENT_STEP: ${{ steps.settings.outputs.sent_step }}
+          REPORT_DATE: ${{ steps.settings.outputs.report_date }}
+        run: |
+          python3 catchup_gate.py --phase 1 --event "$EVENT" --workflow chat-summary.yml \
+            --sent-step "$SENT_STEP" --tz "$ZONE" --target 05:05 --report-date "$REPORT_DATE"
+
+  gate2:
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+      matrix: ${{ needs.gate.outputs.matrix }}
+      edition_matrix: ${{ needs.gate.outputs.edition_matrix }}
+      mode: ${{ needs.gate.outputs.mode }}
+    steps:
+      - name: Wait for the local build window (phase 2)
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ZONE: ${{ needs.gate.outputs.timezone }}
+          SENT_STEP: ${{ needs.gate.outputs.sent_step }}
+          REPORT_DATE: ${{ needs.gate.outputs.report_date }}
+        run: |
+          curl -fsSL --retry 3 --max-time 30 -o catchup_gate.py "$RAW/scripts/gate/catchup_gate.py"
+          python3 catchup_gate.py --phase 2 --event "$EVENT" --workflow chat-summary.yml \
+            --sent-step "$SENT_STEP" --tz "$ZONE" --target 05:05 --report-date "$REPORT_DATE"
+
+  email:
+    needs: gate2
+    if: needs.gate2.outputs.proceed == 'true'
+    name: email (${{ matrix.product }}, ${{ matrix.edition }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
     strategy:
-      fail-fast: false   # one product failing shouldn't stop the other's email
-      matrix:
-        product: ${{ fromJSON((inputs.product && inputs.product != 'all') && format('["{0}"]', inputs.product) || '["travel-animator","marine-radar"]') }}
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.gate2.outputs.matrix) }}
+    # Shared by cron and manual recovery. The final dedupe is inside this lock.
     concurrency:
-      group: chat-summary-${{ matrix.product }}
+      group: digest-chat-summary-${{ matrix.product }}-${{ matrix.edition }}
       cancel-in-progress: false
+    env:
+      PRODUCT: ${{ matrix.product }}
+      EDITION: ${{ matrix.edition }}
+      REPORT_DATE: ${{ matrix.report_date }}
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Resolve delivery settings and mask test recipients
+        id: settings
+        run: python3 scripts/gate/editions.py settings
       - uses: actions/setup-node@v7.0.0
         with:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: node index.js ${{ matrix.product }}
+      - name: ${{ inputs.dry_run && steps.settings.outputs.send_step || 'Build the email' }}
+        id: build
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_TO_PT: ${{ secrets.MAIL_TO_PT }}
           TRAVEL_ANIMATOR_SHEET_ID: ${{ secrets.TRAVEL_ANIMATOR_SHEET_ID }}
           MARINE_RADAR_SHEET_ID: ${{ secrets.MARINE_RADAR_SHEET_ID }}
           TAB_NAME: ${{ inputs.tab }}
-          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          TAB_DEADLINE: ${{ steps.settings.outputs.tab_deadline }}
           TEST_EMAIL_TO: ${{ inputs.test_email_to }}
+        run: node index.js "$PRODUCT" build
+      - name: Hold until 05:55 local
+        id: hold
+        if: ${{ github.event_name == 'schedule' }}
+        env:
+          HOLD_UNTIL: ${{ steps.settings.outputs.hold_until }}
+        run: node index.js "$PRODUCT" hold
+      - name: Check delivery history inside the send lock
+        id: dedupe
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/gate/editions.py dedupe
+      - name: ${{ steps.settings.outputs.send_step }}
+        id: send
+        if: ${{ !inputs.dry_run && steps.dedupe.outputs.sent != 'true' }}
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+        run: node index.js "$PRODUCT" send
+      - name: Encrypt rendered preview files
+        id: encrypt
+        if: ${{ inputs.dry_run }}
+        env:
+          PREVIEW_KEY: ${{ secrets.PREVIEW_KEY }}
+        run: |
+          test -n "$PREVIEW_KEY"
+          # Explicit file names exclude out/frozen-* and all other runner data.
+          tar czf - "out/$PRODUCT-$EDITION.html" "out/$PRODUCT-$EDITION.subject.txt" \
+            | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:PREVIEW_KEY -out preview.tar.gz.enc
+      - name: Upload encrypted preview
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-${{ matrix.product }}-${{ matrix.edition }}
+          path: preview.tar.gz.enc
+          if-no-files-found: error
+          retention-days: 7
+
+  done:
+    needs: [gate2, email]
+    # A selected-product recovery must not claim that both products delivered.
+    if: ${{ !inputs.dry_run && inputs.test_email_to == '' && (inputs.product == '' || inputs.product == 'all') && needs.gate2.outputs.mode == 'real' && needs.email.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix: ${{ fromJSON(needs.gate2.outputs.edition_matrix) }}
+    steps:
+      - name: ${{ format('Delivered {0} for {1}', matrix.label, matrix.report_date) }}
+        run: echo "All product deliveries confirmed."
 
   # GitHub disables scheduled workflows in public repos after 60 days without
   # commits. Re-enabling it on every run resets that timer.

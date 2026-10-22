@@ -1,4 +1,5 @@
 export default {
+  slug: "marine-radar",
   name: "MarineRadar",
   sheetIdEnv: "MARINE_RADAR_SHEET_ID",
   supportContact: "connect@marineradar.com",

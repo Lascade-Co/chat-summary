@@ -4,6 +4,7 @@
   "description": "SalesIQ chat digest: translate, summarize with Gemini, email",
   "main": "index.js",
   "scripts": {
+    "test": "node --test",
     "start": "node index.js",
     "local": "node --env-file=.env index.js"
   },

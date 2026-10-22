@@ -1,4 +1,5 @@
 export default {
+  slug: "travel-animator",
   name: "Travel Animator",
   sheetIdEnv: "TRAVEL_ANIMATOR_SHEET_ID",
   supportContact: "connect@travelanimator.com",
