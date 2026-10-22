@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { badge, button, callout, footer, masthead, stat_grid, table } from "../src/shell.js";
+import { badge, button, callout, footer, head, masthead, stat_grid, table } from "../src/shell.js";
 
 // Inline styles and structures from styleguide-email.html, sections A, F, I, K, M, O, P and Footer.
 const headingFont = "'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif";
@@ -41,7 +41,7 @@ test("striped table matches the canonical table, header, cell and alternating st
   }]);
   assert.deepEqual(tags(html, "th"), Array.from({ length: 2 }, () => ({
     align: "left",
-    style: `padding:10px 12px; font-family:${headingFont}; font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:0.03em; border-bottom:2px solid #222222; color:#222222;`,
+    style: `padding:10px 12px; font-family:${headingFont}; font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:0.03em; border-bottom:2px solid #222222; white-space:nowrap; color:#222222;`,
     class: "heading-dm header-border",
   })));
   assert.deepEqual(tags(html, "tr"), [{}, { style: "background-color:#ece9e6;", class: "table-stripe" }, {}, { style: "background-color:#ece9e6;", class: "table-stripe" }]);
@@ -51,22 +51,67 @@ test("striped table matches the canonical table, header, cell and alternating st
   }]);
 });
 
-test("stat grid uses four quarter-width desktop cards capped at 130px and Outlook ghost cells", () => {
-  const html = stat_grid([[3, "Negative", "#c0392b"], [4, "Neutral", "#222222"], [5, "Positive", "#2a8c4a"], [6, "Abandoned", "#555555"]]);
-  assert.ok(html.startsWith('<tr><td style="padding:16px 40px 0 40px; font-size:0; text-align:center;" class="body-cell">'));
-  assert.ok(html.endsWith("<![endif]--></td></tr>"));
-  assert.match(html, /<!--\[if mso\]><table role="presentation" cellspacing="0" cellpadding="0" border="0" width="520" align="center"><tr><td valign="top" width="130" align="center"><!\[endif\]-->/);
-  assert.equal((html.match(/<!--\[if mso\]><\/td><td valign="top" width="130" align="center"><!\[endif\]-->/g) || []).length, 3);
-  assert.deepEqual(tags(html, "div"), Array.from({ length: 4 }, () => ({
-    style: "display:inline-block; width:25%; max-width:130px; vertical-align:top; text-align:center;", class: "stat-col",
-  })));
-  assert.deepEqual(tags(html, "td").filter(tag => tag.class === "stat-card-dm"), Array.from({ length: 4 }, () => ({
-    bgcolor: "#fefefe", style: "background-color:#fefefe; padding:16px 12px; text-align:center;", class: "stat-card-dm",
-  })));
-  assert.deepEqual(tags(html, "p"), ["#c0392b", "#222222", "#2a8c4a", "#555555"].flatMap(color => [
-    { style: `margin:0; Margin:0; font-family:${headingFont}; font-size:32px; font-weight:700; line-height:1.1; color:${color};`, class: "stat-value heading-dm" },
+const statLayouts = [
+  [1, [{ count: 1, width: "100%", maxWidth: "168px" }]],
+  [2, [{ count: 2, width: "50%", maxWidth: "336px" }]],
+  [3, [{ count: 3, width: "33.33%", maxWidth: "504px" }]],
+  [4, [{ count: 2, width: "50%", maxWidth: "336px" }, { count: 2, width: "50%", maxWidth: "336px" }]],
+  [5, [{ count: 3, width: "33.33%", maxWidth: "504px" }, { count: 2, width: "50%", maxWidth: "336px" }]],
+  [6, [{ count: 3, width: "33.33%", maxWidth: "504px" }, { count: 3, width: "33.33%", maxWidth: "504px" }]],
+  [7, [{ count: 3, width: "33.33%", maxWidth: "504px" }, { count: 3, width: "33.33%", maxWidth: "504px" }, { count: 1, width: "100%", maxWidth: "168px" }]],
+];
+
+for (const [count, layout] of statLayouts) {
+  test(`stat grid keeps ${count} cards in plain table rows of ${layout.map(row => row.count).join(" + ")}`, () => {
+    const html = stat_grid(Array.from({ length: count }, (_, index) => [index + 1, `Metric ${index + 1}`, "#222222"]));
+    const starts = [...html.matchAll(/<table\b[^>]*class="stat-row">/g)];
+    const rows = starts.map((match, index) => html.slice(match.index, starts[index + 1]?.index ?? html.length));
+    assert.equal(rows.length, layout.length);
+    assert.ok(html.startsWith('<table role="presentation"'));
+    assert.ok(html.endsWith("</tr></table>\n"));
+    assert.doesNotMatch(html, /display:inline-block|<div\b|<!--\[if mso\]/);
+    assert.equal(tags(html, "table").length, count + layout.length);
+    assert.equal(tags(html, "td").length, count * 2);
+    assert.deepEqual([...html.matchAll(/class="stat-label-dm">([^<]*)<\/p>/g)].map(match => match[1]),
+      Array.from({ length: count }, (_, index) => `Metric ${index + 1}`));
+    rows.forEach((row, index) => {
+      const expected = layout[index];
+      assert.deepEqual(tags(row, "table")[0], {
+        role: "presentation", cellspacing: "0", cellpadding: "0", border: "0", width: "100%", align: "center",
+        style: `width:100%; max-width:${expected.maxWidth}; margin:0 auto; table-layout:fixed;`, class: "stat-row",
+      });
+      assert.deepEqual(tags(row, "td").filter(tag => tag.class === "stat-cell"), Array.from({ length: expected.count }, () => ({
+        width: expected.width, valign: "top", align: "center", style: "padding:4px;", class: "stat-cell",
+      })));
+      assert.deepEqual(tags(row, "td").filter(tag => tag.class?.includes("stat-card-dm")), Array.from({ length: expected.count }, () => ({
+        bgcolor: "#fefefe", style: "background-color:#fefefe; padding:16px 12px; text-align:center;",
+        class: expected.count === 3 ? "stat-card-dm stat-card-3" : "stat-card-dm",
+      })));
+      assert.deepEqual(tags(row, "p").filter(tag => tag.class?.includes("stat-value")).map(tag => tag.class),
+        Array(expected.count).fill(expected.count === 3 ? "stat-value heading-dm stat-value-3" : "stat-value heading-dm"));
+    });
+  });
+}
+
+test("empty stat grids emit no markup", () => {
+  assert.equal(stat_grid([]), "");
+});
+
+test("stat cards retain canonical typography and escaped values, labels and colours", () => {
+  const html = stat_grid([["<3>", "Negative & urgent", "#c0392b"], [4, "Neutral", "#222222"], [5, "Positive", "#2a8c4a"]]);
+  assert.deepEqual(tags(html, "p"), ["#c0392b", "#222222", "#2a8c4a"].flatMap(color => [
+    { style: `margin:0; Margin:0; font-family:${headingFont}; font-size:32px; font-weight:700; line-height:1.1; white-space:nowrap; color:${color};`, class: "stat-value heading-dm stat-value-3" },
     { style: `margin:4px 0 0 0; Margin:4px 0 0 0; font-family:${headingFont}; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:#777777;`, class: "stat-label-dm" },
   ]));
+  assert.match(html, />&lt;3&gt;<\/p>/);
+  assert.match(html, />Negative &amp; urgent<\/p>/);
+});
+
+test("three-card rows use narrower typography and padding inside the phone media query", () => {
+  const mobile = head("Mobile digest").match(/@media only screen and \(max-width: 480px\) \{([\s\S]*?)\n        \}/);
+  assert.ok(mobile);
+  assert.match(mobile[1], /\.stat-value-3 \{ font-size: 22px !important; \}/);
+  assert.match(mobile[1], /\.stat-card-3 \{ padding-left: 6px !important; padding-right: 6px !important; \}/);
 });
 
 test("badge variants retain the template's sizes, padding, backgrounds and borders", () => {
@@ -82,6 +127,22 @@ test("badge variants retain the template's sizes, padding, backgrounds and borde
     assert.match(html, />&lt;status&gt;<\/span>/);
   }
 });
+
+for (const [variant, background, color, classes] of [
+  ["critical", "#fdf0ee", "#c0392b", "callout-critical-dm"],
+  ["warning", "#faf3e6", "#8a6520", "callout-warning-bg"],
+  ["positive", "#f0f8f2", "#2a8c4a", "callout-positive-dm"],
+  ["info", "#eef5fb", "#2980b9", "callout-info-bg"],
+]) {
+  test(`${variant} badges use the semantic colours and default pill shape`, () => {
+    const html = badge("<status>", variant);
+    assert.deepEqual(tags(html, "span"), [{
+      style: `display:inline-block; font-family:${headingFont}; font-size:11px; font-weight:600; line-height:1; padding:5px 10px; border-radius:12px; background-color:${background}; color:${color}; text-transform:uppercase; letter-spacing:0.03em;`,
+      class: classes,
+    }]);
+    assert.match(html, />&lt;status&gt;<\/span>/);
+  });
+}
 
 test("callouts match each canonical variant and escape multiline attention content", () => {
   const variants = [

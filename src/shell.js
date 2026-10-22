@@ -111,6 +111,8 @@ export function head(title) {
             .avatar-subtitle { font-size: 11px !important; }
             .stat-col { max-width: 50% !important; width: 50% !important; }
             .stat-value { font-size: 28px !important; }
+            .stat-value-3 { font-size: 22px !important; }
+            .stat-card-3 { padding-left: 6px !important; padding-right: 6px !important; }
             .bar-label-cell { width: 100px !important; font-size: 11px !important; }
             .contributor-col { display: block !important; width: 100% !important; max-width: 100% !important; }
         }
@@ -298,7 +300,7 @@ export function table(headers, rows, aligns = null, striped = true, widths = nul
   const heading = headers.map((label, index) => {
     const width = widths?.[index];
     if (width != null && !/^\d+(?:\.\d+)?%?$/.test(String(width))) throw new DigestError("Invalid table width");
-    return `<th align="${alignment(index)}"${width == null ? "" : ` width="${esc(width)}"`} style="padding:10px 12px; font-family:${FONT_HEADING}; font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:0.03em; border-bottom:2px solid ${INK}; color:${INK};" class="heading-dm header-border">${esc(label)}</th>`;
+    return `<th align="${alignment(index)}"${width == null ? "" : ` width="${esc(width)}"`} style="padding:10px 12px; font-family:${FONT_HEADING}; font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:0.03em; border-bottom:2px solid ${INK}; white-space:nowrap; color:${INK};" class="heading-dm header-border">${esc(label)}</th>`;
   }).join("");
   const body = rows.map((row, rowIndex) => {
     const stripe = striped && rowIndex % 2 === 0 ? ` style="background-color:${STRIPE};" class="table-stripe"` : "";
@@ -316,16 +318,32 @@ function cssColor(value) {
   return value;
 }
 
-/** Complete body-cell rows; place directly inside a section table. */
+function statRows(count) {
+  if (count <= 3) return [count];
+  if (count === 4) return [2, 2];
+  const sizes = Array(Math.floor(count / 3)).fill(3);
+  if (count % 3) sizes.push(count % 3);
+  return sizes;
+}
+
+/** Plain table rows of stat cards; place inside cell(). */
 export function stat_grid(stats) {
+  const values = Array.from(stats);
+  if (!values.length) return "";
   let html = "";
-  for (let offset = 0; offset < stats.length; offset += 4) {
-    const row = stats.slice(offset, offset + 4);
-    html += `<tr><td style="padding:16px 40px 0 40px; font-size:0; text-align:center;" class="body-cell"><!--[if mso]><table ${PRESENTATION} width="520" align="center"><tr><td valign="top" width="130" align="center"><![endif]-->`;
+  let position = 0;
+  for (const size of statRows(values.length)) {
+    const row = values.slice(position, position + size);
+    position += size;
+    const three = size === 3;
+    const valueHook = "stat-value heading-dm" + (three ? " stat-value-3" : "");
+    const cardHook = "stat-card-dm" + (three ? " stat-card-3" : "");
+    const cellWidth = `${Number((100 / size).toPrecision(4))}%`;
+    html += `<table ${PRESENTATION} width="100%" align="center" style="width:100%; max-width:${168 * size}px; margin:0 auto; table-layout:fixed;" class="stat-row"><tr>`;
     html += row.map(([value, label, color = INK]) =>
-      `<div style="display:inline-block; width:25%; max-width:130px; vertical-align:top; text-align:center;" class="stat-col"><table ${PRESENTATION} width="100%"><tr><td align="center" style="padding:4px;"><table ${PRESENTATION} width="100%"><tr><td bgcolor="${CARD}" style="background-color:${CARD}; padding:16px 12px; text-align:center;" class="stat-card-dm"><p style="margin:0; Margin:0; font-family:${FONT_HEADING}; font-size:32px; font-weight:700; line-height:1.1; color:${cssColor(color)};" class="stat-value heading-dm">${esc(value)}</p><p style="margin:4px 0 0 0; Margin:4px 0 0 0; font-family:${FONT_HEADING}; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:${STAT_LABEL};" class="stat-label-dm">${esc(label)}</p></td></tr></table></td></tr></table></div>`
-    ).join('<!--[if mso]></td><td valign="top" width="130" align="center"><![endif]-->');
-    html += "<!--[if mso]></td></tr></table><![endif]--></td></tr>";
+      `<td width="${cellWidth}" valign="top" align="center" style="padding:4px;" class="stat-cell"><table ${PRESENTATION} width="100%"><tr><td bgcolor="${CARD}" style="background-color:${CARD}; padding:16px 12px; text-align:center;" class="${cardHook}"><p style="margin:0; Margin:0; font-family:${FONT_HEADING}; font-size:32px; font-weight:700; line-height:1.1; white-space:nowrap; color:${cssColor(color)};" class="${valueHook}">${esc(value)}</p><p style="margin:4px 0 0 0; Margin:4px 0 0 0; font-family:${FONT_HEADING}; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.04em; color:${STAT_LABEL};" class="stat-label-dm">${esc(label)}</p></td></tr></table></td>`
+    ).join("");
+    html += "</tr></table>\n";
   }
   return html;
 }
@@ -335,6 +353,10 @@ export function badge(text, variant = "default", color = null) {
     default: { padding: "5px 10px", bg: "#e8e6e3", color: INK, classes: "badge-bg", border: "" },
     outline: { padding: "4px 9px", bg: "transparent", color: INK, classes: "badge-outline", border: " border:1px solid #888888;" },
     muted: { padding: "5px 10px", bg: "#dddad7", color: MUTED, classes: "badge-bg text-muted", border: "" },
+    critical: { padding: "5px 10px", bg: "#fdf0ee", color: RED, classes: "callout-critical-dm", border: "" },
+    warning: { padding: "5px 10px", bg: "#faf3e6", color: "#8a6520", classes: "callout-warning-bg", border: "" },
+    positive: { padding: "5px 10px", bg: "#f0f8f2", color: GREEN, classes: "callout-positive-dm", border: "" },
+    info: { padding: "5px 10px", bg: "#eef5fb", color: BLUE, classes: "callout-info-bg", border: "" },
   };
   const style = variants[variant];
   if (!style) throw new DigestError("Invalid badge variant");

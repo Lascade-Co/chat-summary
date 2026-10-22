@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildDigestEmail, formatTime } from "../src/email.js";
+import { buildDigestEmail, formatTime, TAG_STYLE } from "../src/email.js";
 import * as shell from "../src/shell.js";
 
 const chat = (overrides = {}) => ({
@@ -40,14 +40,33 @@ test("digest groups sentiment and orders unanswered chats before answered chats"
   assert.ok(detail.indexOf("Open issue") < detail.indexOf("Answered issue"));
   assert.ok(detail.indexOf("Answered issue") < detail.indexOf("General question"));
   assert.ok(detail.indexOf("General question") < detail.indexOf("Thank you"));
-  for (const label of ["Unanswered", "Forwarded", "Answered"]) {
-    assert.ok(detail.includes(shell.badge(label, "outline")));
-  }
   assert.match(html, /<p[^>]*class="text-muted"[^>]*>[^<]*Abandoned[^<]*E6/);
   assert.doesNotMatch(html, /Do not render an abandoned summary/);
   assert.match(text, /NEGATIVE \(2\)/);
   assert.match(text, /\[Unanswered\] Open issue/);
   assert.match(text, /ABANDONED: E6/);
+});
+
+test("digest uses semantic status colours and keeps abandoned chats muted", () => {
+  const items = ["unanswered", "forwarded", "answered", "abandoned"].map((tag, index) =>
+    chat({ row: index + 2, cellRef: `E${index + 2}`, tag, sentiment: "neutral" })
+  );
+  const { html } = buildDigestEmail(items, "2025-10-21", "https://docs.google.com/", "MarineRadar");
+  const badges = [...html.matchAll(/<span style="([^"]*)" class="([^"]*)">(Unanswered|Forwarded|Answered)<\/span>/g)]
+    .map(([, style, classes, label]) => ({
+      label,
+      background: style.match(/background-color:(#[a-f0-9]+);/)?.[1],
+      color: style.match(/(?:^|; )color:(#[a-f0-9]+);/)?.[1],
+      classes,
+    }));
+  assert.deepEqual(badges, [
+    { label: "Unanswered", background: "#fdf0ee", color: "#c0392b", classes: "callout-critical-dm" },
+    { label: "Forwarded", background: "#faf3e6", color: "#8a6520", classes: "callout-warning-bg" },
+    { label: "Answered", background: "#f0f8f2", color: "#2a8c4a", classes: "callout-positive-dm" },
+  ]);
+  assert.match(html, /<p[^>]*color:#666666;" class="text-muted">Abandoned · 1 chat · No real question or no reply: E5<\/p>/);
+  const abandoned = TAG_STYLE.abandoned;
+  assert.match(shell.badge(abandoned.label, abandoned.variant), /background-color:#dddad7; color:#555555;[^>]*class="badge-bg text-muted">Abandoned<\/span>/);
 });
 
 const attentionFragment = html => html.match(/<td[^>]*class="callout-critical-dm">([\s\S]*?)<\/td>/)?.[1] ?? "";
@@ -70,7 +89,8 @@ test("four stat cards follow the header rule and count abandoned chats separatel
     { label: "Positive", count: 3, color: "#2a8c4a" },
     { label: "Abandoned", count: 1, color: "#555555" },
   ]);
-  assert.match(html, /class="header-border">&nbsp;<\/td><\/tr><\/table><\/td><\/tr><\/table><table[^>]*><tr><td style="padding:16px 40px 0 40px; font-size:0; text-align:center;" class="body-cell">/);
+  assert.match(html, /class="header-border">&nbsp;<\/td><\/tr><\/table><\/td><\/tr><\/table><table[^>]*><tr><td style="padding:16px 40px 0 40px;" class="body-cell"><table[^>]*class="stat-row">/);
+  assert.deepEqual(html.split('class="stat-row"').slice(1).map(row => (row.match(/class="stat-cell"/g) ?? []).length), [2, 2]);
   assert.match(text, /Negative: 2 · Neutral: 1 · Positive: 3 · Abandoned: 1/);
 });
 
@@ -163,7 +183,7 @@ test("chat table uses the requested widths and prevents links, times and badges 
   assert.deepEqual(widths, [["Chat", "22%"], ["Summary", "54%"], ["Status", "24%"]]);
   assert.match(html, /<a[^>]*style="[^"]*white-space:nowrap;[^"]*"[^>]*>C22 &#8599;<\/a>/);
   assert.match(html, /<div style="white-space:nowrap;"><a[^>]*>C22 &#8599;<\/a><p[^>]*>12:59 PM<\/p><\/div>/);
-  assert.match(html, /<span style="white-space:nowrap;"><span[^>]*class="badge-outline">Unanswered<\/span><\/span>/);
+  assert.match(html, /<span style="white-space:nowrap;"><span[^>]*class="callout-critical-dm">Unanswered<\/span><\/span>/);
 });
 
 test("attention is omitted without matches, including similar words and a zero-chat day", () => {
@@ -257,10 +277,9 @@ test("shell text helpers and footer escape their data", () => {
   assert.match(html, /href="https:\/\/example.test\/\?q=&quot;footer&quot;"/);
 });
 
-test("stat grid wraps after four cards and escapes values", () => {
+test("stat grid groups five cards into rows of three and two and escapes values", () => {
   const html = shell.stat_grid([["<1>", "<label>", "#c0392b"], [2, "Two"], [3, "Three"], [4, "Four"], [5, "Five"]]);
-  assert.equal((html.match(/class="stat-col"/g) || []).length, 5);
-  assert.equal((html.match(/<table[^>]*width="520" align="center"/g) || []).length, 2);
+  assert.deepEqual(html.split('class="stat-row"').slice(1).map(row => (row.match(/class="stat-cell"/g) ?? []).length), [3, 2]);
   assert.match(html, /&lt;1&gt;/);
   assert.match(html, /&lt;label&gt;/);
 });

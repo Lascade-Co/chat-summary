@@ -12,9 +12,9 @@ const SENTIMENT_SECTIONS = [
 ];
 
 export const TAG_STYLE = {
-  unanswered: { label: "Unanswered", variant: "outline" },
-  forwarded: { label: "Forwarded", variant: "outline" },
-  answered: { label: "Answered", variant: "outline" },
+  unanswered: { label: "Unanswered", variant: "critical" },
+  forwarded: { label: "Forwarded", variant: "warning" },
+  answered: { label: "Answered", variant: "positive" },
   abandoned: { label: "Abandoned", variant: "muted" },
 };
 const TAG_ORDER = { unanswered: 0, forwarded: 1, answered: 2, abandoned: 3 };
@@ -95,7 +95,7 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName, unpro
     return table(["Chat", "Summary", "Status"], rows, null, true, ["22%", "54%", "24%"]);
   }
 
-  let sections = stat_grid(stats);
+  let sections = cell(stat_grid(stats));
   if (attentionLines.length) sections += cell(callout("critical", "Needs your attention", attentionLines));
   for (const section of SENTIMENT_SECTIONS) {
     const list = groups[section.key];
