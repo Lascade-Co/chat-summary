@@ -66,6 +66,40 @@ test("production combines saved and new summaries, writes only new cells, and fr
   assert.ok(!f.logs.join("\n").includes("pt@example.test"));
 });
 
+test("failed translation and skipped summaries do not block the digest and are retried next run", async t => {
+  const rows = [savedRow,
+    [46315.6, "", "private translation failure", "Translation Error"],
+    [46315.7, "", "private skipped chat", "private skipped translation"]];
+  for (let run = 0; run < 2; run++) {
+    const f = await fixture(t, rows, { DRY_RUN: "false", MAIL_FROM: "digest@example.test", MAIL_TO_PT: "pt@example.test" });
+    let translationAttempts = 0, summaryAttempts = 0;
+    f.options.generateJsonImpl = async prompt => {
+      if (prompt.includes("TRANSCRIPTS:")) {
+        translationAttempts++;
+        assert.match(prompt, /C3:\nprivate translation failure/);
+        throw new Error("private upstream error");
+      }
+      summaryAttempts++;
+      assert.match(prompt, /C4: private skipped translation/);
+      return { items: [] };
+    };
+    const result = await pipeline.build(product, f.options);
+    assert.equal(result.count, 1);
+    assert.equal(translationAttempts, 1);
+    assert.equal(summaryAttempts, 1);
+    const frozen = JSON.parse(await readFile(result.frozenPath, "utf8"));
+    const payload = JSON.parse(frozen.body);
+    assert.match(payload.html, /Saved customer summary/);
+    for (const body of [payload.html, payload.text]) {
+      assert.match(body, /2 chats could not be processed and are not shown\./);
+      assert.doesNotMatch(body, /private translation failure|private skipped chat|private skipped translation/);
+    }
+    assert.deepEqual(f.writes[0].requestBody.data, [{ range: "'2026-10-22'!D3", values: [["Translation Error"]] }]);
+    assert.match(f.logs.join("\n"), /unprocessed=2/);
+    assert.doesNotMatch(f.logs.join("\n"), /Saved customer summary|private|pt@example/);
+  }
+});
+
 test("test send is read only and freezes a key isolated from production", async t => {
   const f = await fixture(t, [savedRow], { DRY_RUN: "0", TEST_EMAIL_TO: "tester@example.test", GITHUB_RUN_ID: "5678", MAIL_FROM: "digest@example.test" });
   const result = await pipeline.build(product, f.options);

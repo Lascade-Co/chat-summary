@@ -29,7 +29,7 @@ export function formatTime(date) {
 
 function plural(count, word) { return `${count} ${word}${count === 1 ? "" : "s"}`; }
 
-export function buildDigestEmail(items, reportDate, sheetUrl, productName) {
+export function buildDigestEmail(items, reportDate, sheetUrl, productName, unprocessedCount = 0) {
   const abandoned = items.filter(item => item.tag === "abandoned").sort((a, b) => a.row - b.row);
   const groups = { negative: [], neutral: [], positive: [] };
   for (const item of items) {
@@ -47,6 +47,9 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName) {
   const times = items.map(item => item.when).filter(date => date instanceof Date && Number.isFinite(date.getTime())).sort((a, b) => a - b);
   const since = times.length ? "Since " + fmt(times[0], { day: "numeric", month: "short" }) + " " + formatTime(times[0]) : "";
   const count = plural(items.length, "chat");
+  const unprocessedNote = unprocessedCount > 0
+    ? `${plural(unprocessedCount, "chat")} could not be processed and ${unprocessedCount === 1 ? "is" : "are"} not shown.`
+    : "";
 
   function chatTable(list) {
     const rows = list.map(item => {
@@ -68,7 +71,8 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName) {
   if (abandoned.length) {
     sections += cell(small(`Abandoned · ${plural(abandoned.length, "chat")} · No real question or no reply: ${abandoned.map(item => item.cellRef).join(", ")}`), "32px 40px 0 40px");
   }
-  if (!items.length) sections += cell(small("No chats for this report."), "32px 40px 0 40px");
+  if (unprocessedNote) sections += cell(small(unprocessedNote), "16px 40px 0 40px");
+  if (!items.length && !unprocessedNote) sections += cell(small("No chats for this report."), "32px 40px 0 40px");
   sections += cell(button("View all in Sheets", sheetUrl), "32px 40px 0 40px");
 
   const html = document(
@@ -89,7 +93,8 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName) {
     }
   }
   if (abandoned.length) text += "\nABANDONED: " + abandoned.map(item => item.cellRef).join(", ") + "\n";
-  if (!items.length) text += "\nNo chats for this report.\n";
+  if (unprocessedNote) text += "\n" + unprocessedNote + "\n";
+  if (!items.length && !unprocessedNote) text += "\nNo chats for this report.\n";
   text += "\nView all: " + sheetUrl + "\n";
   return { html, text };
 }

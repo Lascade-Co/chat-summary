@@ -16,8 +16,9 @@ export function idempotencyKey({ sheetIdEnv, tab, edition, testTo, runId }) {
   }
   const suffix = `${sheetIdEnv}/${tab}/${edition}`;
   if (!testTo) return `chat-summary/${suffix}`;
-  if (!validKey(runId)) throw new Error("Test delivery requires a run id");
-  return `chat-summary/test/${suffix}/${runId}`;
+  const testRunId = runId === undefined ? String(Date.now()) : runId;
+  if (!validKey(testRunId)) throw new Error("Test delivery requires a run id");
+  return `chat-summary/test/${suffix}/${testRunId}`;
 }
 
 function validatePayload(payload) {

@@ -2,7 +2,7 @@
 
 Daily SalesIQ chat digests for Travel Animator and MarineRadar, with a shared email style and two local editions.
 
-Apps Script copies chats into a date-named Sheet tab. The pipeline translates column C into D, summarizes and tags new chats in E/F, and writes sentiment to G (Travel Animator) or H (MarineRadar). Each email combines saved summaries with newly summarized rows, so PT can read the tab already processed by IST. Empty tabs produce a zero-chat email. Missing or incomplete source data fails the run instead of silently accepting a partial digest.
+Apps Script copies chats into a date-named Sheet tab. The pipeline translates column C into D, summarizes and tags new chats in E/F, and writes sentiment to G (Travel Animator) or H (MarineRadar). Each email combines saved summaries with newly summarized rows, so PT can read the tab already processed by IST. Empty tabs produce a zero-chat email. A missing tab fails at the deadline. Individual chats with failed translations or skipped summaries are omitted without blocking the digest; HTML and text show their count, and those rows are retried on the next run.
 
 ## Editions and timing
 
@@ -71,10 +71,10 @@ Actions logs contain counts and `sha256(subject)[:8]`, never subjects, email bod
 npm ci
 EDITION=pt DRY_RUN=1 npm run local -- marine-radar
 EDITION=ist DRY_RUN=1 REPORT_DATE=2026-10-21 TAB_NAME=2026-10-21 npm run local -- travel-animator
-EDITION=pt TEST_EMAIL_TO=you@example.com GITHUB_RUN_ID=local-test-001 npm run local -- marine-radar
+EDITION=pt TEST_EMAIL_TO=you@example.com npm run local -- marine-radar
 ```
 
-Use a fresh `GITHUB_RUN_ID` for each local test send. `node index.js <product>` defaults to combined build/hold/send; the workflow uses the separate commands below to insert its history check. Local commands do not acquire the GitHub job lock or query delivery history, so use workflow recovery for production reruns. Remove obsolete local `out/frozen-*.json` files before a new build; a build never overwrites an existing envelope.
+Local test sends use a `Date.now()` timestamp when `GITHUB_RUN_ID` is absent; GitHub test sends keep the run ID. The selected key is frozen with the payload and stays unchanged across send retries. `node index.js <product>` defaults to combined build/hold/send; the workflow uses the separate commands below to insert its history check. Local commands do not acquire the GitHub job lock or query delivery history, so use workflow recovery for production reruns. Remove obsolete local `out/frozen-*.json` files before a new build; a build never overwrites an existing envelope.
 
 ```sh
 node index.js marine-radar build

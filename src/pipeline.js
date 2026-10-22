@@ -344,12 +344,11 @@ export async function build(product, options = {}) {
       rows[item.row - 2][sentimentIndex] = item.sentiment;
     }
   }
-  // Do not permanently accept a partial digest when translation/model output is incomplete.
-  if (rows.some(row => (str(row[COL.chat]) || str(row[COL.translated])) && !str(row[COL.summary]))) {
-    throw new Error("Some source chats could not be summarized");
-  }
+  // A bad chat must not block the digest; leave its summary empty for a later retry.
+  const unprocessedCount = rows.filter(row =>
+    (str(row[COL.chat]) || str(row[COL.translated])) && !str(row[COL.summary])).length;
   const items = savedItems(rows, sentimentIndex, sheetUrl + "&range=");
-  const email = buildDigestEmail(items, reportDate, sheetUrl, product.name);
+  const email = buildDigestEmail(items, reportDate, sheetUrl, product.name, unprocessedCount);
   const emailSubject = subject(product.name + " chats", reportDate, timezone, items.length + " chats");
   await mkdir(outputDir, { recursive: true, mode: 0o700 });
   await writeFile(paths.htmlPath, email.html, { mode: 0o600 });
@@ -359,7 +358,7 @@ export async function build(product, options = {}) {
       payload: { from, to: recipients, subject: emailSubject, html: email.html, text: email.text } });
   }
   const subjectHash = createHash("sha256").update(emailSubject).digest("hex").slice(0, 8);
-  log(`Built chats=${items.length} summarized=${newItems.length} translated=${translations.length} subject_sha256=${subjectHash}`);
+  log(`Built chats=${items.length} summarized=${newItems.length} translated=${translations.length} unprocessed=${unprocessedCount} subject_sha256=${subjectHash}`);
   return { count: items.length, subjectHash, ...paths, frozenPath: dryRun ? null : paths.frozenPath };
 }
 

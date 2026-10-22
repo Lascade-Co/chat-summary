@@ -12,11 +12,11 @@ const payload = {
   text: "Private customer summary",
 };
 
-async function envelope(t, body = payload) {
+async function envelope(t, body = payload, key = "chat-summary/SHEET_ID/2026-10-21/pt") {
   const directory = await mkdtemp(resolve(".delivery-test-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const file = join(directory, "frozen-product-pt.json");
-  await freezeEnvelope(file, { key: "chat-summary/SHEET_ID/2026-10-21/pt", payload: body });
+  await freezeEnvelope(file, { key, payload: body });
   return file;
 }
 
@@ -35,7 +35,35 @@ test("production and test keys are isolated across products, tabs and editions",
   assert.equal(idempotencyKey({ ...input, tab: "2026-10-22" }), "chat-summary/TA_SHEET_ID/2026-10-22/pt");
   assert.equal(idempotencyKey({ ...input, testTo: "test@example.test", runId: "123" }), "chat-summary/test/TA_SHEET_ID/2026-10-21/pt/123");
   assert.equal(idempotencyKey({ ...input, testTo: "changed@example.test", runId: "123" }), "chat-summary/test/TA_SHEET_ID/2026-10-21/pt/123");
-  assert.throws(() => idempotencyKey({ ...input, testTo: "test@example.test" }), /run id/i);
+  for (const runId of ["", null, 123, "123\n456"]) {
+    assert.throws(() => idempotencyKey({ ...input, testTo: "test@example.test", runId }), /run id/i);
+  }
+});
+
+test("local test sends freeze the Date.now fallback key across retries", async t => {
+  let clock = 1792587300000;
+  t.mock.method(Date, "now", () => clock);
+  const key = idempotencyKey({
+    sheetIdEnv: "TA_SHEET_ID", tab: "2026-10-21", edition: "pt", testTo: "test@example.test",
+  });
+  assert.equal(key, "chat-summary/test/TA_SHEET_ID/2026-10-21/pt/1792587300000");
+  const file = await envelope(t, payload, key);
+  const sentKeys = [];
+  clock += 1000;
+  const result = await sendFrozen(file, {
+    apiKey: "secret-test-key",
+    sleep: async ms => { clock += ms; },
+    fetchImpl: async (_url, options) => {
+      sentKeys.push(options.headers["Idempotency-Key"]);
+      if (sentKeys.length === 1) throw new Error("Connection interrupted");
+      return response(200);
+    },
+  });
+  assert.equal(result.accepted, true);
+  assert.deepEqual(sentKeys, [
+    "chat-summary/test/TA_SHEET_ID/2026-10-21/pt/1792587300000",
+    "chat-summary/test/TA_SHEET_ID/2026-10-21/pt/1792587300000",
+  ]);
 });
 
 test("frozen envelope refuses replacement and keeps private file permissions", async t => {

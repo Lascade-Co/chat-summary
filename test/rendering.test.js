@@ -71,6 +71,25 @@ test("zero chats still produces a complete digest", () => {
   assert.match(html, /No chats for this report/);
   assert.match(html, /<\/html>\s*$/);
   assert.match(text, /0 chats/);
+  assert.doesNotMatch(html + text, /could not be processed/);
+});
+
+test("unprocessed chat counts appear once in each body beside the abandoned section", () => {
+  const note = "3 chats could not be processed and are not shown.";
+  const { html, text } = buildDigestEmail([chat({ tag: "abandoned" })], "2025-11-01", "https://docs.google.com/", "Travel Animator", 3);
+  assert.equal(html.split(note).length - 1, 1);
+  assert.equal(text.split(note).length - 1, 1);
+  assert.match(html, /<p[^>]*class="text-muted"[^>]*>3 chats could not be processed and are not shown\.<\/p>/);
+  assert.ok(html.indexOf("Abandoned ·") < html.indexOf(note));
+  assert.ok(html.indexOf(note) < html.indexOf("View all in Sheets"));
+});
+
+test("a digest with only an unprocessed chat explains the omission without claiming the tab is empty", () => {
+  const { html, text } = buildDigestEmail([], "2025-11-01", "https://docs.google.com/", "Travel Animator", 1);
+  for (const body of [html, text]) {
+    assert.match(body, /1 chat could not be processed and is not shown\./);
+    assert.doesNotMatch(body, /No chats for this report/);
+  }
 });
 
 test("sheet wall-clock times are not converted into the process timezone", () => {
