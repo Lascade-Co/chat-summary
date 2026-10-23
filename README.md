@@ -11,7 +11,7 @@ Apps Script copies chats into a date-named Sheet tab. The pipeline translates co
 | `pt` | `America/Los_Angeles` | `MAIL_TO_PT` | 05:05 local | 05:55 local |
 | `ist` | `Asia/Kolkata` | `MAIL_TO` | 05:05 local | 05:55 local |
 
-PT cron: `43 3,6,9 * * *` UTC. IST cron: `9 13,16,19 * * *` UTC. Two gate jobs sleep toward the absolute local 05:05 target. Python `zoneinfo` handles Pacific daylight saving time. The email job has a 75-minute timeout for building, tab polling, holding, and sending. Late starts send as soon as ready with the original report date; the hold never rejects a run for being late.
+PT has no GitHub schedule: cron-job.org dispatches it daily at 05:45 `America/Los_Angeles` on `main` with `edition=pt` and `recovery=true`, using a fine-grained token limited to this repository with Actions read/write. Manual dispatches skip the gates and hold, so PT sends a few minutes after 05:45. IST cron: `9 13,16,19 * * *` UTC. Two gate jobs sleep toward the absolute local 05:05 target. Python `zoneinfo` handles Pacific daylight saving time. The email job has a 75-minute timeout for building, tab polling, holding, and sending. Late starts send as soon as ready with the original report date; the hold never rejects a run for being late.
 
 Both editions use the **current IST day's tab**, independently of the report date, unless `TAB_NAME` is supplied. Move each Apps Script extraction trigger to the **3–4 AM IST** slot before cutover. Scheduled jobs poll a missing tab every 60 seconds through 05:40 in the edition's timezone, then fail. Manual runs skip gate sleeps and the hold, and fail immediately if the requested tab is missing.
 

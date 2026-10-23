@@ -2,9 +2,10 @@ name: Chat summary
 
 on:
   schedule:
-    # Start the evening before each report day. Two sleeping gates release at
-    # 05:05 local; the email job builds once, then holds until 05:55 local.
-    - cron: "43 3,6,9 * * *"
+    # IST only: start the evening before each report day. Two sleeping gates
+    # release at 05:05 local; the email job builds once, then holds until 05:55.
+    # PT is dispatched by cron-job.org at 05:45 America/Los_Angeles with
+    # edition=pt and recovery=true, because scheduled runs can start hours late.
     - cron: "9 13,16,19 * * *"
   workflow_dispatch:
     inputs:
