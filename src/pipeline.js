@@ -302,7 +302,7 @@ export async function build(product, options = {}) {
   const readOnly = dryRun || Boolean(testTo);
   // Validate the date before making any changes to the source sheet.
   subject(product.name + " chats", reportDate, timezone, "0 chats");
-  const key = !dryRun ? idempotencyKey({ sheetIdEnv: product.sheetIdEnv, tab, edition,
+  const key = !dryRun ? idempotencyKey({ sheetIdEnv: product.sheetIdEnv, edition, reportDate,
     testTo, runId: env.GITHUB_RUN_ID }) : null;
   const from = !dryRun ? requireEnv("MAIL_FROM", env) : null;
   const recipients = !dryRun ? (testTo || requireEnv(edition === "pt" ? "MAIL_TO_PT" : "MAIL_TO", env))

@@ -23,8 +23,8 @@ The workflow runs `build`, `hold`, a delivery-history check, then `send`. Its se
 
 Build writes a frozen envelope once to `out/frozen-<product>-<edition>.json` on the current runner. Send reads that file once and retries the exact body bytes with the same Resend key. There is no `scheduled_at`, cache, cross-run payload storage, or upload of frozen envelopes.
 
-- Production key: `chat-summary/<sheetIdEnv>/<tab>/<edition>`.
-- Test key: `chat-summary/test/<sheetIdEnv>/<tab>/<edition>/<github.run_id>`.
+- Production key: `chat-summary/<sheetIdEnv>/<edition>/<report date>`. It names one email, so a recovery for the same report day reuses it whichever tab it reads.
+- Test key: `chat-summary/test/<sheetIdEnv>/<edition>/<report date>/<github.run_id>`.
 - Only HTTP 200 records acceptance. HTTP 409 `concurrent_idempotent_requests` retries with backoff; `invalid_idempotent_request` fails closed and needs investigation.
 - If a runner dies after an ambiguous POST, a new run rebuilds from the sheet. A changed payload may conflict with the existing key and leave a red run; do not bypass the key to force a duplicate.
 - Dry runs and test sends use `Dry run …` or `Test send …` step names, never `Deliver` or `Delivered`, and cannot satisfy production dedupe.

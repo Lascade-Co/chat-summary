@@ -28,26 +28,38 @@ function response(status, name = "", message = "Private customer summary") {
   });
 }
 
-test("production and test keys are isolated across products, tabs and editions", () => {
-  const input = { sheetIdEnv: "TA_SHEET_ID", tab: "2026-10-21", edition: "pt" };
-  assert.equal(idempotencyKey(input), "chat-summary/TA_SHEET_ID/2026-10-21/pt");
-  assert.equal(idempotencyKey({ ...input, edition: "ist" }), "chat-summary/TA_SHEET_ID/2026-10-21/ist");
-  assert.equal(idempotencyKey({ ...input, sheetIdEnv: "MARINE_SHEET_ID" }), "chat-summary/MARINE_SHEET_ID/2026-10-21/pt");
-  assert.equal(idempotencyKey({ ...input, tab: "2026-10-22" }), "chat-summary/TA_SHEET_ID/2026-10-22/pt");
-  assert.equal(idempotencyKey({ ...input, testTo: "test@example.test", runId: "123" }), "chat-summary/test/TA_SHEET_ID/2026-10-21/pt/123");
-  assert.equal(idempotencyKey({ ...input, testTo: "changed@example.test", runId: "123" }), "chat-summary/test/TA_SHEET_ID/2026-10-21/pt/123");
+test("production and test keys are isolated across products, editions and report days", () => {
+  const input = { sheetIdEnv: "TA_SHEET_ID", edition: "pt", reportDate: "2026-10-21" };
+  assert.equal(idempotencyKey(input), "chat-summary/TA_SHEET_ID/pt/2026-10-21");
+  assert.equal(idempotencyKey({ ...input, edition: "ist" }), "chat-summary/TA_SHEET_ID/ist/2026-10-21");
+  assert.equal(idempotencyKey({ ...input, sheetIdEnv: "MARINE_SHEET_ID" }), "chat-summary/MARINE_SHEET_ID/pt/2026-10-21");
+  assert.equal(idempotencyKey({ ...input, testTo: "test@example.test", runId: "123" }), "chat-summary/test/TA_SHEET_ID/pt/2026-10-21/123");
+  assert.equal(idempotencyKey({ ...input, testTo: "changed@example.test", runId: "123" }), "chat-summary/test/TA_SHEET_ID/pt/2026-10-21/123");
   for (const runId of ["", null, 123, "123\n456"]) {
     assert.throws(() => idempotencyKey({ ...input, testTo: "test@example.test", runId }), /run id/i);
   }
+  for (const reportDate of [undefined, "", "2026-10-2", "2026-10-21\n", "Private subject"]) {
+    assert.throws(() => idempotencyKey({ ...input, reportDate }), /idempotency key/i);
+  }
+});
+
+test("the key follows the report day, not the tab (2026-10-23 409 regression)", () => {
+  const base = { sheetIdEnv: "TA_SHEET_ID", edition: "pt" };
+  // A recovery for Oct 22 that read the Oct 23 tab must not take the key of the real Oct 23 send.
+  assert.notEqual(idempotencyKey({ ...base, reportDate: "2026-10-22", tab: "2026-10-23" }),
+    idempotencyKey({ ...base, reportDate: "2026-10-23", tab: "2026-10-23" }));
+  // The same report day keeps one key across IST midnight, whichever tab a retry reads.
+  assert.equal(idempotencyKey({ ...base, reportDate: "2026-10-23", tab: "2026-10-23" }),
+    idempotencyKey({ ...base, reportDate: "2026-10-23", tab: "2026-10-24" }));
 });
 
 test("local test sends freeze the Date.now fallback key across retries", async t => {
   let clock = 1792587300000;
   t.mock.method(Date, "now", () => clock);
   const key = idempotencyKey({
-    sheetIdEnv: "TA_SHEET_ID", tab: "2026-10-21", edition: "pt", testTo: "test@example.test",
+    sheetIdEnv: "TA_SHEET_ID", edition: "pt", reportDate: "2026-10-21", testTo: "test@example.test",
   });
-  assert.equal(key, "chat-summary/test/TA_SHEET_ID/2026-10-21/pt/1792587300000");
+  assert.equal(key, "chat-summary/test/TA_SHEET_ID/pt/2026-10-21/1792587300000");
   const file = await envelope(t, payload, key);
   const sentKeys = [];
   clock += 1000;
@@ -62,8 +74,8 @@ test("local test sends freeze the Date.now fallback key across retries", async t
   });
   assert.equal(result.accepted, true);
   assert.deepEqual(sentKeys, [
-    "chat-summary/test/TA_SHEET_ID/2026-10-21/pt/1792587300000",
-    "chat-summary/test/TA_SHEET_ID/2026-10-21/pt/1792587300000",
+    "chat-summary/test/TA_SHEET_ID/pt/2026-10-21/1792587300000",
+    "chat-summary/test/TA_SHEET_ID/pt/2026-10-21/1792587300000",
   ]);
 });
 
@@ -84,9 +96,9 @@ test("freezing rejects scheduled delivery fields", async t => {
 
 test("delivery configuration failures expose safe diagnoses without invalid input values", async t => {
   const file = await envelope(t);
-  const input = { sheetIdEnv: "TA_SHEET_ID", tab: "2026-10-21", edition: "pt" };
+  const input = { sheetIdEnv: "TA_SHEET_ID", edition: "pt", reportDate: "2026-10-21" };
   const failures = [
-    () => idempotencyKey({ ...input, tab: "Private subject\nrecipient@example.test" }),
+    () => idempotencyKey({ ...input, reportDate: "Private subject\nrecipient@example.test" }),
     () => idempotencyKey({ ...input, testTo: "recipient@example.test", runId: "Private subject\n" }),
     () => freezeEnvelope(file, { key: "Private subject\n", payload }),
     () => freezeEnvelope(file, { key: "safe", payload: null }),

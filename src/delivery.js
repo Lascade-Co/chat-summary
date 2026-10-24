@@ -10,12 +10,17 @@ function validKey(value) {
   return typeof value === "string" && value.length > 0 && !/[\r\n\x00]/.test(value);
 }
 
-/** Test sends are stable within one run and cannot consume a production key. */
-export function idempotencyKey({ sheetIdEnv, tab, edition, testTo, runId }) {
-  if (!validKey(sheetIdEnv) || !validKey(tab) || !["pt", "ist"].includes(edition)) {
+/**
+ * One key per email: product, edition and report day. The tab is left out so a
+ * recovery for the same day keeps its key whichever tab it reads or when it runs.
+ * Test sends are stable within one run and cannot consume a production key.
+ */
+export function idempotencyKey({ sheetIdEnv, edition, reportDate, testTo, runId }) {
+  if (!validKey(sheetIdEnv) || !["pt", "ist"].includes(edition)
+      || typeof reportDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(reportDate)) {
     throw new DigestError("Invalid idempotency key settings");
   }
-  const suffix = `${sheetIdEnv}/${tab}/${edition}`;
+  const suffix = `${sheetIdEnv}/${edition}/${reportDate}`;
   if (!testTo) return `chat-summary/${suffix}`;
   const testRunId = runId === undefined ? String(Date.now()) : runId;
   if (!validKey(testRunId)) throw new DigestError("Test delivery requires a run id");

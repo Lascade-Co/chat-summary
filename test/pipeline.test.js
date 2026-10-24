@@ -58,7 +58,7 @@ test("production combines saved and new summaries, writes only new cells, and fr
   assert.equal(f.writes.length, 1);
   assert.deepEqual(f.writes[0].requestBody.data.map(value => value.range), ["'2026-10-22'!G1", "'2026-10-22'!E3:F3", "'2026-10-22'!G3"]);
   const frozen = JSON.parse(await readFile(result.frozenPath, "utf8"));
-  assert.equal(frozen.key, "chat-summary/TRAVEL_ANIMATOR_SHEET_ID/2026-10-22/pt");
+  assert.equal(frozen.key, "chat-summary/TRAVEL_ANIMATOR_SHEET_ID/pt/2026-10-21");
   const payload = JSON.parse(frozen.body);
   assert.deepEqual(payload.to, ["pt@example.test"]);
   assert.match(payload.html, /Saved customer summary/);
@@ -105,9 +105,22 @@ test("test send is read only and freezes a key isolated from production", async 
   const f = await fixture(t, [savedRow], { DRY_RUN: "0", TEST_EMAIL_TO: "tester@example.test", GITHUB_RUN_ID: "5678", MAIL_FROM: "digest@example.test" });
   const result = await pipeline.build(product, f.options);
   const frozen = JSON.parse(await readFile(result.frozenPath, "utf8"));
-  assert.equal(frozen.key, "chat-summary/test/TRAVEL_ANIMATOR_SHEET_ID/2026-10-22/pt/5678");
+  assert.equal(frozen.key, "chat-summary/test/TRAVEL_ANIMATOR_SHEET_ID/pt/2026-10-21/5678");
   assert.deepEqual(JSON.parse(frozen.body).to, ["tester@example.test"]);
   assert.equal(f.writes.length, 0);
+});
+
+test("a different source tab keeps the report day's production key", async t => {
+  const env = { DRY_RUN: "false", MAIL_FROM: "digest@example.test", MAIL_TO: "ist@example.test", MAIL_TO_PT: "pt@example.test" };
+  const keys = [];
+  for (const tab of [undefined, "2026-10-23"]) {
+    const f = await fixture(t, [savedRow], tab ? { ...env, TAB_NAME: tab } : env);
+    if (tab) f.sheets.spreadsheets.get = async () => ({ data: { properties: { timeZone: "America/Los_Angeles" },
+      sheets: [{ properties: { title: tab, sheetId: 124 } }] } });
+    const result = await pipeline.build(product, f.options);
+    keys.push(JSON.parse(await readFile(result.frozenPath, "utf8")).key);
+  }
+  assert.deepEqual(keys, ["chat-summary/TRAVEL_ANIMATOR_SHEET_ID/pt/2026-10-21", "chat-summary/TRAVEL_ANIMATOR_SHEET_ID/pt/2026-10-21"]);
 });
 
 test("empty tabs still render a zero-chat digest", async t => {
