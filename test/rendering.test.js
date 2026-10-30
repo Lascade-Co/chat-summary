@@ -40,11 +40,12 @@ test("digest groups sentiment and orders unanswered chats before answered chats"
   assert.ok(detail.indexOf("Open issue") < detail.indexOf("Answered issue"));
   assert.ok(detail.indexOf("Answered issue") < detail.indexOf("General question"));
   assert.ok(detail.indexOf("General question") < detail.indexOf("Thank you"));
-  assert.match(html, /<p[^>]*class="text-muted"[^>]*>[^<]*Abandoned[^<]*E6/);
+  assert.match(html, /<p[^>]*class="text-muted"[^>]*>Abandoned · 1 chat · No real question or no reply\.<\/p>/);
   assert.doesNotMatch(html, /Do not render an abandoned summary/);
   assert.match(text, /NEGATIVE \(2\)/);
-  assert.match(text, /\[Unanswered\] Open issue/);
-  assert.match(text, /ABANDONED: E6/);
+  assert.ok(text.includes("- [Unanswered] Open issue · https://docs.google.com/spreadsheets/d/example/edit#range=E2\n"));
+  assert.match(text, /ABANDONED: 1 chat\n/);
+  assert.doesNotMatch(html.replace(/<[^>]+>/g, "") + text.replace(/https:\S+/g, ""), /\bE[2-6]\b/);
 });
 
 test("digest uses semantic status colours and keeps abandoned chats muted", () => {
@@ -64,7 +65,7 @@ test("digest uses semantic status colours and keeps abandoned chats muted", () =
     { label: "Forwarded", background: "#faf3e6", color: "#8a6520", classes: "callout-warning-bg badge-warning-dm" },
     { label: "Answered", background: "#f0f8f2", color: "#2a8c4a", classes: "callout-positive-dm badge-positive-dm" },
   ]);
-  assert.match(html, /<p[^>]*color:#666666;" class="text-muted">Abandoned · 1 chat · No real question or no reply: E5<\/p>/);
+  assert.match(html, /<p[^>]*color:#666666;" class="text-muted">Abandoned · 1 chat · No real question or no reply\.<\/p>/);
   const abandoned = TAG_STYLE.abandoned;
   assert.match(shell.badge(abandoned.label, abandoned.variant), /background-color:#dddad7; color:#555555;[^>]*class="badge-bg text-muted">Abandoned<\/span>/);
 });
@@ -108,9 +109,9 @@ test("attention flags negative unanswered or forwarded chats and ignores other s
   const { html, text } = buildDigestEmail([...other, ...flagged], "2025-10-21", "https://docs.google.com/", "MarineRadar");
   const attention = attentionFragment(html);
   assert.match(attention, /Needs your attention/);
-  assert.match(attention, /C12 · Export is stuck\. Please help\.<br \/>C13 · Support escalation/);
+  assert.match(attention, /Export is stuck\. Please help\.<br \/>Support escalation/);
   assert.doesNotMatch(attention, /Fixed export|Plain question|Thank you|No reply/);
-  assert.match(text, /Needs your attention\nC12 · Export is stuck\. Please help\.\nC13 · Support escalation\n/);
+  assert.match(text, /Needs your attention\nExport is stuck\. Please help\.\nSupport escalation\n/);
   assert.ok(html.indexOf('>Abandoned</p>') < html.indexOf('>Needs your attention</p>'));
   assert.ok(html.indexOf('>Needs your attention</p>') < html.indexOf('>Negative · 3 chats</h2>'));
 });
@@ -119,7 +120,7 @@ test("attention keywords flag every sentiment and status, including common word 
   const summaries = ["Refund requested", "Subscription cancellation", "Unexpected charge", "SCAM report", "Legal concern", "Data\nloss", "Safety issue", "Two refunds", "Account cancelled", "Charged twice", "Chargeback pending"];
   for (const summary of summaries) {
     const { html, text } = buildDigestEmail([chat({ cellRef: "C12", summary, sentiment: "positive", tag: "answered" })], "2025-10-21", "https://docs.google.com/", "MarineRadar");
-    const line = `C12 · ${summary.replace(/\s+/g, " ")}`;
+    const line = summary.replace(/\s+/g, " ");
     assert.ok(attentionFragment(html).includes(line), summary);
     assert.ok(text.includes(`Needs your attention\n${line}\n`), summary);
   }
@@ -131,16 +132,16 @@ test("attention lists at most five chats in sheet order and counts the rest once
   const items = Array.from({ length: 7 }, (_, index) => chat({ row: index + 12, cellRef: `C${index + 12}`, summary: `Refund request ${index + 1}` })).reverse();
   const { html, text } = buildDigestEmail(items, "2025-10-21", "https://docs.google.com/", "MarineRadar");
   const attention = attentionFragment(html);
-  const lines = items.toReversed().slice(0, 5).map(item => `${item.cellRef} · ${item.summary}`);
+  const lines = items.toReversed().slice(0, 5).map(item => item.summary);
   assert.ok(attention.includes(lines.join("<br />") + "<br />+2 more"));
-  assert.doesNotMatch(attention, /C17|C18/);
+  assert.doesNotMatch(attention, /Refund request (?:6|7)/);
   assert.ok(text.includes("Needs your attention\n" + lines.join("\n") + "\n+2 more\n"));
   assert.equal(text.match(/\+2 more/g)?.length, 1);
 });
 
 test("attention truncates normalized summaries at a word boundary while detail keeps the full text", () => {
   const summary = "  Customer requested a refund after the app charged them twice and support has\nnot replied for three days.\tThey are waiting for a response.  ";
-  const expected = "C2 · Customer requested a refund after the app charged them twice and support has not replied…";
+  const expected = "Customer requested a refund after the app charged them twice and support has not replied…";
   const { html, text } = buildDigestEmail([chat({ cellRef: "C2", summary })], "2025-10-21", "https://docs.google.com/", "MarineRadar");
   const attention = attentionFragment(html);
   assert.ok(attention.includes(expected));
@@ -155,13 +156,13 @@ test("attention keeps summaries up to 90 characters and bounds a long unbroken U
   const { html: shortHtml, text: shortText } = buildDigestEmail([chat({ summary: exactLimit })], "2025-10-21", "https://docs.google.com/", "MarineRadar");
   assert.ok(attentionFragment(shortHtml).includes(exactLimit));
   assert.doesNotMatch(attentionFragment(shortHtml), /…/);
-  assert.ok(shortText.includes(`Needs your attention\nE2 · ${exactLimit}\n`));
+  assert.ok(shortText.includes(`Needs your attention\n${exactLimit}\n`));
 
   const summary = "🔒".repeat(100);
   const expected = "🔒".repeat(89) + "…";
   const { html, text } = buildDigestEmail([chat({ summary })], "2025-10-21", "https://docs.google.com/", "MarineRadar");
   assert.ok(attentionFragment(html).includes(expected));
-  assert.ok(text.includes(`Needs your attention\nE2 · ${expected}\n`));
+  assert.ok(text.includes(`Needs your attention\n${expected}\n`));
   assert.doesNotMatch(attentionFragment(html), /\uFFFD/);
 });
 
@@ -173,16 +174,18 @@ test("attention classification uses the full summary and truncated text stays es
   assert.match(attention, /The &lt;customer&gt; asks about a saved map &amp; route\./);
   assert.match(attention, /…<\/p>/);
   assert.doesNotMatch(attention, /<customer>|refund/);
-  assert.match(text, /Needs your attention\nE2 · The <customer> asks about a saved map & route\./);
+  assert.match(text, /Needs your attention\nThe <customer> asks about a saved map & route\./);
 });
 
-test("chat table uses the requested widths and prevents links, times and badges from wrapping", () => {
-  const { html } = buildDigestEmail([chat({ cellRef: "C22", time: "12:59 PM" })], "2025-10-21", "https://docs.google.com/", "MarineRadar");
-  const widths = [...html.matchAll(/<th[^>]*width="([0-9]+%)"[^>]*>(Chat|Summary|Status)<\/th>/g)]
-    .map(([, width, label]) => [label, width]);
-  assert.deepEqual(widths, [["Chat", "22%"], ["Summary", "54%"], ["Status", "24%"]]);
-  assert.match(html, /<a[^>]*style="[^"]*white-space:nowrap;[^"]*"[^>]*>C22 &#8599;<\/a>/);
-  assert.match(html, /<div style="white-space:nowrap;"><a[^>]*>C22 &#8599;<\/a><p[^>]*>12:59 PM<\/p><\/div>/);
+test("chat table has a full-width linked summary and a fixed-width status column", () => {
+  const link = "https://docs.google.com/spreadsheets/d/example/edit#range=C22";
+  const { html } = buildDigestEmail([chat({ cellRef: "C22", link, time: "12:59 PM", summary: "Vessels not showing" })], "2025-10-21", "https://docs.google.com/", "MarineRadar");
+  const headers = [...html.matchAll(/<th([^>]*)>([^<]*)<\/th>/g)].map(([, attrs, label]) => [label, attrs.match(/ width="([^"]*)"/)?.[1] ?? null]);
+  assert.deepEqual(headers, [["Summary", "100%"], ["Status", "128"]]);
+  assert.ok(html.includes(`<a href="${shell.esc(link)}" style="color:#222222; text-decoration:none;" class="email-link">Vessels not showing</a>`));
+  const visible = html.replace(/<[^>]+>/g, "");
+  assert.doesNotMatch(visible, /C22|12:59 PM/);
+  assert.doesNotMatch(html, /&#8599;/);
   assert.match(html, /<span style="white-space:nowrap;"><span[^>]*class="callout-critical-dm badge-critical-dm">Unanswered<\/span><\/span>/);
 });
 
@@ -201,8 +204,8 @@ test("digest uses canonical content spacing, captions, links, and complete foote
   const { html } = buildDigestEmail([chat()], "2025-10-21", "https://docs.google.com/", "MarineRadar");
   assert.match(html, /<td style="padding:32px 40px 0 40px;" class="body-cell"><h2[^>]*>Negative · 1 chat<\/h2>/);
   assert.match(html, /<td style="padding:16px 40px 0 40px;" class="body-cell"><p[^>]*>Frustrated, complaints, bugs<\/p>/);
-  assert.ok(html.includes(shell.small("4:30 AM")));
-  assert.match(html, /<a href="https:\/\/docs.google.com\/spreadsheets\/d\/example\/edit#range=E2" style="color:#222222; text-decoration:underline; white-space:nowrap;" class="email-link">E2 &#8599;<\/a>/);
+  assert.ok(!html.includes(shell.small("4:30 AM")));
+  assert.match(html, /<a href="https:\/\/docs.google.com\/spreadsheets\/d\/example\/edit#range=E2" style="color:#222222; text-decoration:none;" class="email-link">Export is stuck\.<\/a>/);
   assert.doesNotMatch(html, /padding:8px 40px 0 40px|width="18%"|class="text-main tfix"/);
   assert.ok(html.includes('font-size:12px; line-height:1.5; color:#555555; text-align:center;'));
   assert.match(html, /<p[^>]*font-size:11px; line-height:1.4; color:#888888; text-align:center;" class="text-muted">Report for Tuesday, 21 October 2025<\/p>/);

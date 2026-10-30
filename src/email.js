@@ -65,7 +65,7 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName, unpro
   ];
   const attention = items.filter(needsAttention).sort((a, b) => a.row - b.row);
   const attentionLines = attention.slice(0, 5).map(item =>
-    `${item.cellRef} · ${attentionSummary(item.summary)}`
+    attentionSummary(item.summary)
   );
   if (attention.length > 5) attentionLines.push(`+${attention.length - 5} more`);
 
@@ -84,15 +84,12 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName, unpro
   function chatTable(list) {
     const rows = list.map(item => {
       const status = TAG_STYLE[item.tag] ?? TAG_STYLE.unanswered;
-      const link = `<a href="${esc(item.link)}" style="color:${INK}; text-decoration:underline; white-space:nowrap;" class="email-link">${esc(item.cellRef)} &#8599;</a>`;
-      const time = item.time ? small(item.time) : "";
       return [
-        { html: `<div style="white-space:nowrap;">${link}${time}</div>` },
-        item.summary,
+        { html: `<a href="${esc(item.link)}" style="color:${INK}; text-decoration:none;" class="email-link">${esc(item.summary)}</a>` },
         { html: `<span style="white-space:nowrap;">${badge(status.label, status.variant)}</span>` },
       ];
     });
-    return table(["Chat", "Summary", "Status"], rows, null, true, ["22%", "54%", "24%"]);
+    return table(["Summary", "Status"], rows, null, true, ["100%", "128"]);
   }
 
   let sections = cell(stat_grid(stats));
@@ -104,7 +101,7 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName, unpro
       cell(small(section.note)) + cell(chatTable(list));
   }
   if (abandoned.length) {
-    sections += cell(small(`Abandoned · ${plural(abandoned.length, "chat")} · No real question or no reply: ${abandoned.map(item => item.cellRef).join(", ")}`), "32px 40px 0 40px");
+    sections += cell(small(`Abandoned · ${plural(abandoned.length, "chat")} · No real question or no reply.`), "32px 40px 0 40px");
   }
   if (unprocessedNote) sections += cell(small(unprocessedNote), "16px 40px 0 40px");
   if (!items.length && !unprocessedNote) sections += cell(small("No chats for this report."), "32px 40px 0 40px");
@@ -118,7 +115,7 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName, unpro
       [["View all in Sheets", sheetUrl]], [`Report for ${longDate}`]),
   );
 
-  // Plain-text fallback preserves full summaries and sheet references.
+  // Plain-text fallback preserves full summaries and sheet links.
   let text = productName + " Chat Summary\n" + longDate + " · " + count + "\n" + (since ? since + "\n" : "");
   text += stats.map(([value, label]) => `${label}: ${value}`).join(" · ") + "\n";
   if (attentionLines.length) text += "\nNeeds your attention\n" + attentionLines.join("\n") + "\n";
@@ -127,10 +124,10 @@ export function buildDigestEmail(items, reportDate, sheetUrl, productName, unpro
     if (!list.length) continue;
     text += "\n" + section.title.toUpperCase() + " (" + list.length + ")\n";
     for (const item of list) {
-      text += "- " + item.cellRef + (item.time ? " " + item.time : "") + " [" + (TAG_STYLE[item.tag] ?? TAG_STYLE.unanswered).label + "] " + item.summary + "\n";
+      text += "- [" + (TAG_STYLE[item.tag] ?? TAG_STYLE.unanswered).label + "] " + item.summary + " · " + item.link + "\n";
     }
   }
-  if (abandoned.length) text += "\nABANDONED: " + abandoned.map(item => item.cellRef).join(", ") + "\n";
+  if (abandoned.length) text += "\nABANDONED: " + plural(abandoned.length, "chat") + "\n";
   if (unprocessedNote) text += "\n" + unprocessedNote + "\n";
   if (!items.length && !unprocessedNote) text += "\nNo chats for this report.\n";
   text += "\nView all: " + sheetUrl + "\n";
